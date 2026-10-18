@@ -1,1 +1,0 @@
-- [Stripe connector access](stripe-connector-access.md) — use the managed proxy; this connection does not expose a raw secret key.
