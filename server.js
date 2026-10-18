@@ -17,7 +17,20 @@ const initSqlJs = require("sql.js");
 const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 const Razorpay = require("razorpay");
-// Firebase Authentication removed per specification
+const { createClient } = require("@supabase/supabase-js");
+
+// Supabase Init
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_-newRs_kuToUhqmXSvTcNA_e3RVbDPV";
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-ref")) {
+    try {
+        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        console.log("⚡ Supabase Client initialized successfully");
+    } catch (e) {
+        console.warn("⚠️ Supabase initialization warning:", e.message);
+    }
+}
 
 // Razorpay SDK init
 let razorpay = null;
@@ -90,6 +103,15 @@ app.use("/frontend", express.static(FRONTEND_DIR));
 if (fs.existsSync(path.join(FRONTEND_DIR, "cerficated.jpg"))) {
     app.get("/cerficated.jpg", (_req, res) => res.sendFile(path.join(FRONTEND_DIR, "cerficated.jpg")));
 }
+
+// Supabase configuration endpoint for client
+app.get("/api/supabase/config", (_req, res) => {
+    res.json({
+        url: SUPABASE_URL,
+        publishableKey: SUPABASE_KEY,
+        configured: !!(supabase)
+    });
+});
 
 /* ─── Database Path ─────────────────────────────────────────────── */
 const DB_DIR = path.join(__dirname, "database");
