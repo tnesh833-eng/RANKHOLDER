@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Rank Holder"
+description = "A software toolkit for students, creators, and professionals to discover search rankings, research opportunities, and manage practical workflow tools. Includes Firebase sign-in and Stripe-backed subscription access."
+version = "1.0.0"
+id = "artifacts/rank-holder"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20290
+
+[services.development]
+run = "pnpm --filter @workspace/rank-holder run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rank-holder", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/rank-holder/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20290"
+BASE_PATH = "/"

@@ -1,0 +1,162 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: billing
+    description: Rank Holder subscription and checkout operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /billing/plans:
+    get:
+      operationId: getBillingPlans
+      tags: [billing]
+      summary: List active Rank Holder subscription plans
+      responses:
+        "200":
+          description: Active recurring plans available for checkout
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BillingPlan"
+        "503":
+          description: Billing is not configured
+  /billing/subscription:
+    get:
+      operationId: getBillingSubscription
+      tags: [billing]
+      summary: Get the signed-in user's subscription status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current subscription status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSubscriptionStatus"
+        "401":
+          description: Firebase sign-in is required
+  /billing/checkout-session:
+    post:
+      operationId: createBillingCheckout
+      tags: [billing]
+      summary: Start Stripe Checkout for an active Rank Holder plan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingCheckoutInput"
+      responses:
+        "200":
+          description: Stripe Checkout URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingRedirect"
+        "400":
+          description: The selected plan is not available
+        "401":
+          description: Firebase sign-in is required
+  /billing/portal-session:
+    post:
+      operationId: createBillingPortal
+      tags: [billing]
+      summary: Open the signed-in user's Stripe billing portal
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Stripe billing portal URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingRedirect"
+        "401":
+          description: Firebase sign-in is required
+        "404":
+          description: No Stripe customer is associated with this account
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    BillingPlan:
+      type: object
+      required: [priceId, productId, name, unitAmount, currency, interval]
+      properties:
+        priceId:
+          type: string
+        productId:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        unitAmount:
+          type: integer
+        currency:
+          type: string
+        interval:
+          type: string
+        intervalCount:
+          type: integer
+    BillingSubscriptionStatus:
+      type: object
+      required: [hasActiveSubscription, status, currentPeriodEnd, cancelAtPeriodEnd]
+      properties:
+        hasActiveSubscription:
+          type: boolean
+        status:
+          type: ["string", "null"]
+        currentPeriodEnd:
+          type: ["string", "null"]
+        cancelAtPeriodEnd:
+          type: boolean
+    BillingCheckoutInput:
+      type: object
+      required: [priceId]
+      properties:
+        priceId:
+          type: string
+          minLength: 1
+    BillingRedirect:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+

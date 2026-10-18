@@ -1,0 +1,21 @@
+# Dependencies and generated output
+**/node_modules/
+**/.vite/
+**/dist/
+**/build/
+**/coverage/
+**/*.tsbuildinfo
+
+# Local environment and runtime files
+**/.env
+**/.env.*
+!**/.env.example
+**/firebase-debug.log
+**/otp_latest.txt
+
+# Local editor and OS files
+.vscode/
+.idea/
+*.log
+Thumbs.db
+.DS_Store
