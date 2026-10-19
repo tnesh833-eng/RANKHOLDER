@@ -700,14 +700,47 @@ async function initDatabase() {
     console.log("✅ Database initialized successfully.");
 }
 
-/* ─── SMTP / Email Setup ───────────────────────────────────────── */
+/* ─── Email Setup (Resend HTTPS API → Gmail SMTP fallback) ────── */
 const SMTP_EMAIL = (process.env.SMTP_EMAIL || "tnesh833@gmail.com").trim();
-const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "ncgvcgqzlgumybeb").replace(/\s/g, "").trim();
+const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "").replace(/\s/g, "").trim();
+const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes expiry
 
+// --- Resend HTTPS API sender (works on Render free tier, port 443) ---
+async function sendViaResend(toEmail, subject, html, text) {
+    if (!RESEND_API_KEY) return false;
+    try {
+        const resp = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${RESEND_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                from: "Rank-Holder <onboarding@resend.dev>",
+                to: [toEmail],
+                subject,
+                html,
+                text
+            })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.id) {
+            console.log(`[Resend ✅] Email sent → ${toEmail} (id: ${data.id})`);
+            return true;
+        }
+        console.error(`[Resend ❌] ${toEmail}:`, JSON.stringify(data));
+        return false;
+    } catch (err) {
+        console.error(`[Resend ❌] fetch error:`, err.message);
+        return false;
+    }
+}
+
+// --- Gmail SMTP sender (fallback for local dev / non-Render envs) ---
 function getGmailTransporter() {
-    const user = (process.env.SMTP_EMAIL || "tnesh833@gmail.com").trim();
-    const pass = (process.env.SMTP_PASSWORD || "ncgvcgqzlgumybeb").replace(/\s/g, "").trim();
+    const user = SMTP_EMAIL;
+    const pass = SMTP_PASSWORD;
     if (!user || !pass) return null;
     return nodemailer.createTransport({
         service: "gmail",
@@ -718,27 +751,21 @@ function getGmailTransporter() {
     });
 }
 
-const transporter = getGmailTransporter();
-if (transporter) {
-    console.log(`📧 Gmail SMTP ready: ${SMTP_EMAIL}`);
+if (RESEND_API_KEY) {
+    console.log("📧 Resend HTTPS email API ready (primary)");
+} else if (SMTP_PASSWORD) {
+    console.log(`📧 Gmail SMTP ready (fallback): ${SMTP_EMAIL}`);
 } else {
-    console.warn("⚠️ SMTP is not configured; OTP delivery is disabled.");
+    console.warn("⚠️ No email provider configured; OTP codes will be logged to console.");
 }
 
 function generateOTP() {
     return String(100000 + Math.floor(Math.random() * 900000));
 }
 
-async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
-    const cleanEmail = String(toEmail || "").trim().toLowerCase();
-    // Clear subject with code first for instant lock-screen & notification display
-    const subj = `Rank-Holder Code: ${otpCode} (Verification)`;
-
-    // Plain-text version for maximum deliverability & quick phone notification preview
-    const plainText = `Your Rank-Holder verification code is: ${otpCode}\n\nUse this 6-digit code to complete your ${purpose}.\nThis code is valid for 10 minutes.\n\nIf you did not request this, you can safely ignore this email.\n\n— Rank-Holder Team`;
-
-    // Mobile-optimised, high-contrast HTML email template
-    const html = `
+// Shared HTML email template builder
+function buildOTPHtml(cleanEmail, otpCode, purpose) {
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -763,16 +790,15 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
                             <p style="margin: 0 0 10px; font-size: 15px; color: #e2e8f0; line-height: 1.5;">
                                 Your verification code for <strong style="color: #818cf8;">${purpose}</strong> is:
                             </p>
-                            <!-- High-contrast OTP Display Box -->
                             <div style="margin: 16px 0; padding: 18px; background-color: #070a1a; border: 2px dashed rgba(99,102,241,0.5); border-radius: 12px; text-align: center;">
-                                <span style="font-family: 'Courier New', Courier, monospace, sans-serif; font-size: 38px; font-weight: 800; letter-spacing: 8px; color: #38bdf8; display: inline-block;">${otpCode}</span>
+                                <span style="font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 800; letter-spacing: 8px; color: #38bdf8; display: inline-block;">${otpCode}</span>
                             </div>
                             <p style="margin: 0 0 16px; font-size: 13px; color: #94a3b8; line-height: 1.5;">
                                 ⏱️ This code will expire in <strong style="color: #f1f5f9;">10 minutes</strong>.<br>Enter this code on your phone or computer to continue.
                             </p>
                             <div style="padding: 12px 14px; background: rgba(99,102,241,0.08); border-radius: 8px; border-left: 3px solid #6366f1; text-align: left;">
                                 <p style="margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.4;">
-                                    🔒 <strong>Inbox Tip:</strong> If not found in your Primary inbox, please check your <strong>Spam / Junk</strong> folder or <strong>Promotions</strong> tab.
+                                    🔒 <strong>Inbox Tip:</strong> If not found in your Primary inbox, check <strong>Spam / Junk</strong> or <strong>Promotions</strong> tab.
                                 </p>
                             </div>
                         </td>
@@ -788,11 +814,24 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
         </tr>
     </table>
 </body>
-</html>
-    `;
+</html>`;
+}
 
+async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
+    const cleanEmail = String(toEmail || "").trim().toLowerCase();
+    const subj = `Rank-Holder Code: ${otpCode} – Verify your account`;
+    const plainText = `Your Rank-Holder verification code is: ${otpCode}\n\nUse this 6-digit code to complete your ${purpose}.\nThis code is valid for 10 minutes.\n\nIf you did not request this, you can safely ignore this email.\n\n— Rank-Holder Team`;
+    const html = buildOTPHtml(cleanEmail, otpCode, purpose);
+
+    // 1️⃣ Try Resend first (HTTPS → works on Render free tier)
+    if (RESEND_API_KEY) {
+        const sent = await sendViaResend(cleanEmail, subj, html, plainText);
+        if (sent) return true;
+        console.warn("[Resend] Failed, trying Gmail SMTP fallback…");
+    }
+
+    // 2️⃣ Fallback: Gmail SMTP (local dev only — blocked on Render free tier)
     const activeTransporter = getGmailTransporter();
-
     if (activeTransporter) {
         try {
             const info = await activeTransporter.sendMail({
@@ -800,22 +839,19 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
                 to: cleanEmail,
                 replyTo: SMTP_EMAIL,
                 priority: "high",
-                headers: {
-                    'X-Priority': '1',
-                    'X-MSMail-Priority': 'High',
-                    'Importance': 'High'
-                },
+                headers: { 'X-Priority': '1', 'X-MSMail-Priority': 'High', 'Importance': 'High' },
                 subject: subj,
                 text: plainText,
-                html: html
+                html
             });
-            console.log(`[SMTP ✅] OTP sent to phone/email → ${cleanEmail} (ID: ${info.messageId})`);
+            console.log(`[SMTP ✅] OTP sent → ${cleanEmail} (ID: ${info.messageId})`);
             return true;
         } catch (err) {
-            console.error(`[SMTP ❌] Failed to send email to ${cleanEmail}:`, err.message);
-            return false;
+            console.error(`[SMTP ❌] Failed → ${cleanEmail}:`, err.message);
         }
     }
+
+    // 3️⃣ Last resort: log to console so admin can see the code
     console.log(`\n══════════════════════════════════════════════════`);
     console.log(`  📧 OTP for ${cleanEmail}: ${otpCode}`);
     console.log(`══════════════════════════════════════════════════\n`);
@@ -829,8 +865,15 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
     const plainText = text || "Rank-Holder notification";
     const htmlText = html || `<p>${plainText.replace(/\n/g, "<br>")}</p>`;
 
-    const activeTransporter = getGmailTransporter();
+    // 1️⃣ Resend first
+    if (RESEND_API_KEY) {
+        const sent = await sendViaResend(cleanEmail, subject, htmlText, plainText);
+        if (sent) return true;
+        console.warn("[Resend] System email failed, trying Gmail SMTP…");
+    }
 
+    // 2️⃣ Gmail SMTP fallback
+    const activeTransporter = getGmailTransporter();
     if (activeTransporter) {
         try {
             await activeTransporter.sendMail({
@@ -841,11 +884,10 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
                 text: plainText,
                 html: htmlText
             });
-            console.log(`[SMTP ✅] System email sent to → ${cleanEmail}`);
+            console.log(`[SMTP ✅] System email sent → ${cleanEmail}`);
             return true;
         } catch (err) {
             console.error(`[SMTP ❌] System email failed:`, err.message);
-            return false;
         }
     }
 
