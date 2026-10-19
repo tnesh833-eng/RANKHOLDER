@@ -858,6 +858,38 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
     return true;
 }
 
+// ─── Admin CC: sends OTP to user AND a clear copy to admin ───────
+async function sendOTPWithAdminCC(userEmail, otpCode, purpose) {
+    const isAdmin = isAdminEmail(userEmail);
+    // 1️⃣ Always send OTP to the user
+    const userSent = await sendOTPEmail(userEmail, otpCode, purpose).catch(() => false);
+
+    // 2️⃣ Also notify admin (unless the user IS the admin)
+    if (!isAdmin) {
+        const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const adminSubject = `[Rank-Holder] OTP Alert — ${userEmail}`;
+        const adminHtml = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#0d122b;color:#e2e8f0;border-radius:12px;padding:24px;">
+  <h2 style="margin:0 0 12px;color:#a5b4fc;">🔔 Verification Code Alert</h2>
+  <p style="margin:0 0 8px;">A verification code was just sent to a user:</p>
+  <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+    <tr><td style="padding:6px 12px;background:#070a1a;border-radius:6px 6px 0 0;"><strong>User Email</strong></td><td style="padding:6px 12px;background:#070a1a;">${userEmail}</td></tr>
+    <tr><td style="padding:6px 12px;background:#111827;"><strong>Purpose</strong></td><td style="padding:6px 12px;background:#111827;">${purpose}</td></tr>
+    <tr><td style="padding:6px 12px;background:#070a1a;"><strong>Time (IST)</strong></td><td style="padding:6px 12px;background:#070a1a;">${now}</td></tr>
+    <tr><td style="padding:6px 12px;background:#111827;"><strong>Expires</strong></td><td style="padding:6px 12px;background:#111827;">10 minutes</td></tr>
+  </table>
+  <div style="margin:16px 0;padding:20px;background:#070a1a;border:2px dashed rgba(99,102,241,0.5);border-radius:12px;text-align:center;">
+    <div style="font-size:11px;color:#64748b;margin-bottom:6px;">VERIFICATION CODE</div>
+    <span style="font-family:monospace;font-size:40px;font-weight:800;letter-spacing:10px;color:#38bdf8;">${otpCode}</span>
+  </div>
+  <p style="font-size:12px;color:#64748b;margin:0;">This is an automated admin copy. The same code was sent to the user's inbox.</p>
+</div>`;
+        const adminText = `OTP Alert\nUser: ${userEmail}\nPurpose: ${purpose}\nCode: ${otpCode}\nTime: ${now}\nExpires in 10 minutes.`;
+        sendViaResend(ADMIN_EMAIL, adminSubject, adminHtml, adminText).catch(() => {});
+    }
+    return userSent;
+}
+
 async function sendSystemEmail(toEmail, subject, text, html = "") {
     const cleanEmail = String(toEmail || "").trim().toLowerCase();
     if (!cleanEmail) return false;
@@ -963,7 +995,7 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
         dbRun("INSERT INTO users (name, first_name, last_name, email, email_hash, phone, purpose, github_link, terms_accepted, password_hash, is_verified, status, tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, 'PENDING', 100)", [fullName, first, last, e, lookupKey, p, purposeText, github, pHash]);
     }
 
-    await sendOTPEmail(e, otp, "registration").catch(() => {});
+    await sendOTPWithAdminCC(e, otp, "registration").catch(() => {});
     await sendSystemEmail(ADMIN_EMAIL, `New registration request: ${e}`,
         `New user registration has started.\n\nName: ${fullName}\nEmail: ${e}\nPurpose: ${purposeText}\nGitHub: ${github}\n\nA verification code was sent to the user email and admin review is enabled.`,
         `<p><strong>New registration request</strong></p><p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${e}</p><p><strong>Purpose:</strong> ${purposeText}</p><p><strong>GitHub:</strong> ${github}</p><p>A verification code was sent to the user email and admin review is enabled.</p>`
@@ -1031,8 +1063,8 @@ app.post("/api/auth/resend-otp", async (req, res) => {
     const exp = new Date(Date.now() + OTP_EXPIRY_MS).toISOString();
     dbRun("INSERT INTO otp_codes (email, otp_code, purpose, expires_at) VALUES (?, ?, ?, ?)", [e, otp, purpose, exp]);
 
-    const sent = await sendOTPEmail(e, otp, purpose);
-    if (!sent && transporter) {
+    const sent = await sendOTPWithAdminCC(e, otp, purpose);
+    if (!sent) {
         return res.status(503).json({ error: "Verification email is temporarily unavailable. Please try again later." });
     }
     const resendResp = { success: true, message: `New verification code dispatched to ${e}. Please check your email inbox & spam folder.` };
@@ -1073,8 +1105,8 @@ app.post("/api/auth/login-otp-request", async (req, res) => {
     const exp = new Date(Date.now() + OTP_EXPIRY_MS).toISOString();
     dbRun("INSERT INTO otp_codes (email, otp_code, purpose, expires_at) VALUES (?, ?, 'login', ?)", [e, otp, exp]);
 
-    const sent = await sendOTPEmail(e, otp, "login").catch(() => false);
-    if (!sent && transporter) {
+    const sent = await sendOTPWithAdminCC(e, otp, "login").catch(() => false);
+    if (!sent) {
         return res.status(503).json({ error: "Login email is temporarily unavailable. Please try again later." });
     }
     const loginResp = {
