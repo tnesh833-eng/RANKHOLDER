@@ -18,12 +18,14 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 const Razorpay = require("razorpay");
 const { createClient } = require("@supabase/supabase-js");
+const SupabaseService = require("./supabase-service");
+const { loadBalancerMiddleware, getLoadBalancerStatus, aiLoadBalancer } = require("./load-balancer");
 
 // Supabase Init
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_-newRs_kuToUhqmXSvTcNA_e3RVbDPV";
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-ref")) {
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_-newRs_kuToUhqmXSvTcNA_e3RVbDPV";
+let supabase = SupabaseService.getClient();
+if (!supabase && SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-ref")) {
     try {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         console.log("⚡ Supabase Client initialized successfully");
@@ -95,6 +97,21 @@ app.use(express.json({
     }
 }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(loadBalancerMiddleware);
+
+// Load Balancer health check & real-time load probes
+app.get("/api/lb/health", (_req, res) => {
+    res.json({
+        status: "healthy",
+        uptime_seconds: Math.floor(process.uptime()),
+        pid: process.pid,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get("/api/lb/status", (_req, res) => {
+    res.json(getLoadBalancerStatus());
+});
 
 // Static asset serving
 const FRONTEND_DIR = path.join(__dirname, "frontend");
@@ -109,8 +126,24 @@ app.get("/api/supabase/config", (_req, res) => {
     res.json({
         url: SUPABASE_URL,
         publishableKey: SUPABASE_KEY,
-        configured: !!(supabase)
+        configured: SupabaseService.isConfigured() || !!(supabase)
     });
+});
+
+// Supabase live status and table diagnostic endpoint
+app.get("/api/supabase/status", async (_req, res) => {
+    const status = await SupabaseService.getStatus();
+    res.json(status);
+});
+
+// Admin-triggered SQLite to Supabase data migration
+app.post("/api/supabase/sync-all", requireAdmin, async (_req, res) => {
+    try {
+        const report = await SupabaseService.syncAllFromSqlite(dbAll);
+        res.json({ success: true, report });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /* ─── Database Path ─────────────────────────────────────────────── */
@@ -840,6 +873,10 @@ app.post("/api/auth/verify-register", (req, res) => {
     const user = dbGet("SELECT * FROM users WHERE email = ?", [e]);
     if (!user) return res.status(404).json({ error: "User not found." });
 
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.syncUser(user).catch(err => console.warn("[Supabase] user sync warning:", err.message));
+    }
+
     const token = createSessionToken(user.id);
     res.cookie("token", token, {
         httpOnly: true,
@@ -1406,11 +1443,17 @@ app.post("/api/notifications/clear", (_req, res) => {
     return res.json({ success: true });
 });
 
-app.get("/api/jobs", requireAuth, (_req, res) => {
-    return res.json({ jobs: dbAll("SELECT * FROM jobs ORDER BY id DESC") });
+app.get("/api/jobs", requireAuth, async (_req, res) => {
+    if (SupabaseService.isConfigured()) {
+        const remoteJobs = await SupabaseService.getJobs();
+        if (remoteJobs && remoteJobs.length > 0) {
+            return res.json({ jobs: remoteJobs, source: "supabase" });
+        }
+    }
+    return res.json({ jobs: dbAll("SELECT * FROM jobs ORDER BY id DESC"), source: "sqlite" });
 });
 
-app.post("/api/jobs", requireAuth, (req, res) => {
+app.post("/api/jobs", requireAuth, async (req, res) => {
     const { title, company, location = "India", type = "Full-time", experience = "Fresher",
         salary = "Best in Industry", skills = "", link = "#",
         internship_link, hr_contact, badge = "New Opening" } = req.body || {};
@@ -1421,28 +1464,54 @@ app.post("/api/jobs", requireAuth, (req, res) => {
             internship_link || link,
             hr_contact || `careers@${company.toLowerCase().replace(/\s/g, "")}.com`,
             badge]);
-    return res.status(201).json(dbGet("SELECT * FROM jobs WHERE id = ?", [lastInsertId()]));
+    const newJob = dbGet("SELECT * FROM jobs WHERE id = ?", [lastInsertId()]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertJob({
+            title, company, location, type, experience, salary, skills, link,
+            internship_link: internship_link || link,
+            hr_contact: hr_contact || `careers@${company.toLowerCase().replace(/\s/g, "")}.com`,
+            badge
+        }).catch(err => console.warn("[Supabase] job sync warning:", err.message));
+    }
+    return res.status(201).json(newJob);
 });
 
-app.delete("/api/jobs/:id", requireAuth, (req, res) => {
+app.delete("/api/jobs/:id", requireAuth, async (req, res) => {
     dbRun("DELETE FROM jobs WHERE id = ?", [req.params.id]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.deleteJob(req.params.id).catch(err => console.warn("[Supabase] job delete warning:", err.message));
+    }
     return res.json({ success: true, deleted_id: +req.params.id });
 });
 
-app.get("/api/prospects", requireAuth, (_req, res) => {
-    return res.json({ prospects: dbAll("SELECT * FROM prospects ORDER BY id DESC") });
+app.get("/api/prospects", requireAuth, async (_req, res) => {
+    if (SupabaseService.isConfigured()) {
+        const remoteProspects = await SupabaseService.getProspects();
+        if (remoteProspects && remoteProspects.length > 0) {
+            return res.json({ prospects: remoteProspects, source: "supabase" });
+        }
+    }
+    return res.json({ prospects: dbAll("SELECT * FROM prospects ORDER BY id DESC"), source: "sqlite" });
 });
 
-app.post("/api/prospects", requireAuth, (req, res) => {
+app.post("/api/prospects", requireAuth, async (req, res) => {
     const { name, company, linkedin, status = "Pending", idea = "" } = req.body || {};
     if (!name || !company || !linkedin) return res.status(400).json({ error: "Name, company, linkedin required." });
     dbRun("INSERT INTO prospects (name,company,linkedin,status,idea) VALUES (?,?,?,?,?)",
         [name, company, linkedin, status, idea]);
-    return res.status(201).json(dbGet("SELECT * FROM prospects WHERE id = ?", [lastInsertId()]));
+    const newProspect = dbGet("SELECT * FROM prospects WHERE id = ?", [lastInsertId()]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertProspect({ name, company, linkedin, status, idea })
+            .catch(err => console.warn("[Supabase] prospect sync warning:", err.message));
+    }
+    return res.status(201).json(newProspect);
 });
 
-app.delete("/api/prospects/:id", requireAuth, (req, res) => {
+app.delete("/api/prospects/:id", requireAuth, async (req, res) => {
     dbRun("DELETE FROM prospects WHERE id = ?", [req.params.id]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.deleteProspect(req.params.id).catch(err => console.warn("[Supabase] prospect delete warning:", err.message));
+    }
     return res.json({ success: true, deleted_id: +req.params.id });
 });
 
@@ -1459,6 +1528,10 @@ app.post("/api/games/scores", requireAuth, (req, res) => {
     dbRun(`INSERT INTO game_scores (user_id, game_name, high_score) VALUES (?, ?, ?)
            ON CONFLICT(user_id, game_name) DO UPDATE SET
            high_score = MAX(high_score, excluded.high_score), updated_at = datetime('now')`, [req.currentUser.id, game_name, score]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.upsertGameScore(req.currentUser.id, game_name, score)
+            .catch(err => console.warn("[Supabase] game score sync warning:", err.message));
+    }
     return res.json({ success: true, game_name, score });
 });
 
@@ -1498,6 +1571,10 @@ app.post("/api/feedback", async (req, res) => {
     if (!e || !e.includes("@")) return res.status(400).json({ error: "Valid email address is required." });
 
     dbRun("INSERT INTO feedbacks (user_name, user_email, rating, message) VALUES (?, ?, ?, ?)", [n, e, r, msg]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertFeedback({ user_name: n, user_email: e, rating: r, message: msg })
+            .catch(err => console.warn("[Supabase] feedback sync warning:", err.message));
+    }
     const feedbackUser = dbGet("SELECT id FROM users WHERE email = ?", [e]);
     logAdminActivity(feedbackUser ? feedbackUser.id : null, "FEEDBACK_SUBMITTED", `${n} submitted a ${r}/5 rating: ${msg.slice(0, 160)}`);
     const stars = "⭐".repeat(r);
@@ -1582,8 +1659,11 @@ async function callGeminiRaw(prompt, maxTokens = 500) {
         for (const model of GEMINI_MODEL_FALLBACKS) {
             if (Date.now() > deadline) break;
             try {
-                return await callGeminiModel(model, apiKey, prompt, maxTokens);
+                const result = await callGeminiModel(model, apiKey, prompt, maxTokens);
+                aiLoadBalancer.recordSuccess("gemini");
+                return result;
             } catch (e) {
+                aiLoadBalancer.recordFailure("gemini", e);
                 lastError = e;
                 console.warn(`[Gemini] ${model} attempt ${pass + 1} failed: ${e.message}`);
             }
@@ -3328,14 +3408,19 @@ initDatabase().then(() => {
         return res.json({ status: "ok" });
     });
 
-    app.listen(PORT, "0.0.0.0", () => {
-        console.log(`\n======================================================`);
-        console.log(`  🚀 Rank-Holder Server running on http://0.0.0.0:${PORT}`);
-        console.log(`  📁 Frontend root: ./frontend/`);
-        console.log(`  🗄️ Database: ${DB_PATH}`);
-        console.log(`======================================================\n`);
-    });
+    if (!process.env.VERCEL) {
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`\n======================================================`);
+            console.log(`  🚀 Rank-Holder Server running on http://0.0.0.0:${PORT}`);
+            console.log(`  📁 Frontend root: ./frontend/`);
+            console.log(`  🗄️ Database: ${DB_PATH}`);
+            console.log(`  ⚡ Supabase: ${SupabaseService.isConfigured() ? "Connected" : "Encrypted SQLite fallback"}`);
+            console.log(`======================================================\n`);
+        });
+    }
 }).catch(err => {
     console.error("❌ Failed to start server:", err);
-    process.exit(1);
+    if (!process.env.VERCEL) process.exit(1);
 });
+
+module.exports = app;

@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "regions": ["iad1", "sfo1", "bom1", "sin1", "fra1"],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/frontend/(.*)", "destination": "/$1" }
+  ]
+}
