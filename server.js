@@ -390,7 +390,23 @@ function requireAdmin(req, res, next) {
 
 /* ─── Database Bootstrap Function ──────────────────────────────── */
 async function initDatabase() {
-    const SQL = await initSqlJs();
+    let SQL;
+    try {
+        const wasmPaths = [
+            path.join(__dirname, "node_modules", "sql.js", "dist", "sql-wasm.wasm"),
+            path.join(process.cwd(), "node_modules", "sql.js", "dist", "sql-wasm.wasm"),
+            "/var/task/node_modules/sql.js/dist/sql-wasm.wasm"
+        ];
+        const validPath = wasmPaths.find(p => fs.existsSync(p));
+        SQL = await initSqlJs(validPath ? { locateFile: () => validPath } : undefined);
+    } catch (wasmErr) {
+        console.warn("⚠️ sql.js wasm load error:", wasmErr.message);
+        if (process.env.VERCEL) {
+            console.log("⚡ Vercel serverless mode: running with Supabase backend");
+            return;
+        }
+        throw wasmErr;
+    }
 
     let loaded = false;
     if (fs.existsSync(DB_PATH)) {
