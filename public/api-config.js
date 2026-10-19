@@ -11,8 +11,7 @@
  */
 
 // ⬇️ UPDATE THIS with your Render backend URL once deployed on Render:
-// Example: "https://rankholder-backend.onrender.com/api"
-const RENDER_API_URL = "REPLACE_WITH_YOUR_RENDER_URL/api";
+const RENDER_API_URL = "https://rankholder-backend.onrender.com/api";
 
 (function () {
     let resolvedBase;
