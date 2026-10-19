@@ -361,7 +361,7 @@
             </form>
             
             <div class="auth-footer" style="margin-top:16px;">
-                <span id="authFooterNote">A 6-digit email verification code with manual attached backup will be generated.</span>
+                <span id="authFooterNote">A 6-digit verification code will be dispatched directly to your email inbox.</span>
             </div>
         </div>
 
@@ -508,18 +508,9 @@
                 if (res && res.success) {
                     otpInputs.forEach(inp => { inp.value = ''; });
                     otpInputs[0].focus();
-                    if (res.manual_code) {
-                        otpErr.innerHTML = `🔑 <strong>Fresh Code: ${res.manual_code}</strong><br><span style="font-size:0.78rem;opacity:0.9;">(Auto-filled below)</span>`;
-                        otpErr.style.color = '#10b981';
-                        otpErr.classList.remove('hidden');
-                        String(res.manual_code).split('').forEach((d, i) => {
-                            if (otpInputs[i]) otpInputs[i].value = d;
-                        });
-                    } else {
-                        otpErr.textContent = "✅ Fresh 6-digit code sent to " + currentEmail + "! Please check your email inbox & spam folder.";
-                        otpErr.style.color = '#10b981';
-                        otpErr.classList.remove('hidden');
-                    }
+                    otpErr.textContent = "✅ Fresh 6-digit code sent to " + currentEmail + "! Please check your email inbox & spam folder.";
+                    otpErr.style.color = '#10b981';
+                    otpErr.classList.remove('hidden');
                     setTimeout(() => { otpErr.style.color = ''; }, 6000);
                 } else {
                     throw new Error(res?.error || "Failed to resend code");
@@ -611,17 +602,6 @@
                     document.getElementById('step2').classList.remove('hidden');
                     otpInputs.forEach(inp => { inp.value = ''; });
                     otpInputs[0].focus();
-                    if (res.manual_code) {
-                        const otpErr = document.getElementById('otpError');
-                        if (otpErr) {
-                            otpErr.innerHTML = `🔑 <strong>Verification Code: ${res.manual_code}</strong><br><span style="font-size:0.78rem;opacity:0.9;">(Auto-filled below — click Verify & Open Website)</span>`;
-                            otpErr.style.color = '#10b981';
-                            otpErr.classList.remove('hidden');
-                        }
-                        String(res.manual_code).split('').forEach((d, i) => {
-                            if (otpInputs[i]) otpInputs[i].value = d;
-                        });
-                    }
                 } else {
                     throw new Error((res && res.error) ? res.error : "Failed to send code. Please try again.");
                 }

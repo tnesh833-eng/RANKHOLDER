@@ -883,11 +883,7 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
         `New user registration has started.\n\nName: ${fullName}\nEmail: ${e}\nPurpose: ${purposeText}\nGitHub: ${github}\n\nA verification code was sent to the user email and admin review is enabled.`,
         `<p><strong>New registration request</strong></p><p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${e}</p><p><strong>Purpose:</strong> ${purposeText}</p><p><strong>GitHub:</strong> ${github}</p><p>A verification code was sent to the user email and admin review is enabled.</p>`
     ).catch(() => {});
-    const regResp = { success: true, message: `Verification code sent to ${e}.` };
-    if (!transporter) {
-        regResp.manual_code = otp;
-        regResp.message = `Verification code: ${otp} (SMTP not configured on server)`;
-    }
+    const regResp = { success: true, message: `Verification code sent to ${e}. Please check your email inbox on your phone.` };
     return res.json(regResp);
 });
 
@@ -1001,10 +997,6 @@ app.post("/api/auth/login-otp-request", async (req, res) => {
         message: `Verification code sent to ${e}. Please check your email inbox & spam folder.`,
         is_admin: isAdminEmail(e)
     };
-    if (!transporter) {
-        loginResp.manual_code = otp;
-        loginResp.message = `Verification code: ${otp} (SMTP not configured on server)`;
-    }
     return res.json(loginResp);
 });
 
@@ -1087,10 +1079,6 @@ app.post("/api/admin/otp-request", async (req, res) => {
         success: true,
         message: `Admin verification code sent to ${e}. Please check your email inbox & spam folder.`
     };
-    if (!transporter) {
-        admResp.manual_code = otp;
-        admResp.message = `Admin code: ${otp} (SMTP not configured on server)`;
-    }
     return res.json(admResp);
 });
 
