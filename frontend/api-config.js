@@ -11,7 +11,7 @@
  */
 
 // ⬇️ UPDATE THIS with your Render backend URL once deployed on Render:
-const RENDER_API_URL = "https://rankholder-backend.onrender.com/api";
+const RENDER_API_URL = "https://placement-qjmu.onrender.com/api";
 
 (function () {
     let resolvedBase;

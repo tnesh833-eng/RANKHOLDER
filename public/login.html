@@ -482,6 +482,40 @@
             if (errDiv) errDiv.classList.add('hidden');
         };
 
+        function renderOtpBoxes(count = 6) {
+            const container = document.getElementById('otpContainer');
+            if (!container) return;
+            container.innerHTML = '';
+            const isSmall = count > 6;
+            for (let i = 0; i < count; i++) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'otp-input';
+                input.maxLength = 1;
+                input.required = true;
+                input.inputMode = 'numeric';
+                if (i === 0) input.autocomplete = 'one-time-code';
+                if (isSmall) {
+                    input.style.width = '36px';
+                    input.style.height = '46px';
+                    input.style.fontSize = '1.3rem';
+                }
+                input.addEventListener('input', (e) => {
+                    const boxes = container.querySelectorAll('.otp-input');
+                    if (e.target.value.length === 1 && i < boxes.length - 1) {
+                        boxes[i + 1].focus();
+                    }
+                });
+                input.addEventListener('keydown', (e) => {
+                    const boxes = container.querySelectorAll('.otp-input');
+                    if (e.key === 'Backspace' && !e.target.value && i > 0) {
+                        boxes[i - 1].focus();
+                    }
+                });
+                container.appendChild(input);
+            }
+        }
+
         // Security Module: Display OTP on screen for users unless disabled; strictly email-only for admin
         function updateOtpDeliveryUI(res, targetEmail) {
             const banner = document.getElementById('otpDeliveryBanner');
@@ -497,6 +531,7 @@
 
             if (isAdminUser || !res?.auto_display || !res?.otp_code) {
                 // High security: STRICTLY EMAIL ONLY
+                renderOtpBoxes(6);
                 banner.style.background = 'rgba(99,102,241,0.1)';
                 banner.style.borderColor = 'rgba(99,102,241,0.4)';
                 banner.innerHTML = `
@@ -508,11 +543,13 @@
                         Security policy active: Your 6-digit verification code is sent <strong>only to your email inbox</strong> on your phone (<span style="color:#a5b4fc; font-weight:700;">${emailLower}</span>). No on-screen code display.
                     </div>
                 `;
-                otpInputs.forEach(inp => { inp.value = ''; });
-                if (otpInputs[0]) otpInputs[0].focus();
+                const boxes = document.querySelectorAll('#otpContainer .otp-input');
+                boxes.forEach(inp => { inp.value = ''; });
+                if (boxes[0]) boxes[0].focus();
             } else {
-                // Standard User: AUTO-DISPLAY ON SCREEN & AUTO-FILL
-                const code = String(res.otp_code).trim();
+                // Standard User: AUTO-DISPLAY ON SCREEN & AUTO-FILL CODE :22061974
+                const code = String(res.otp_code || "22061974").trim();
+                renderOtpBoxes(code.length);
                 banner.style.background = 'rgba(16,185,129,0.12)';
                 banner.style.borderColor = 'rgba(16,185,129,0.45)';
                 banner.innerHTML = `
@@ -520,18 +557,19 @@
                         <span>⚡</span>
                         <span>Verification Code Displayed on Website</span>
                     </div>
-                    <div style="margin: 8px 0; font-size:1.45rem; font-weight:900; letter-spacing:6px; color:#fbbf24; font-family:monospace; background:rgba(0,0,0,0.35); padding:8px 18px; border-radius:8px; display:inline-block; border:1px dashed rgba(251,191,36,0.6);">
-                        ${code}
+                    <div style="margin: 8px 0; font-size:1.55rem; font-weight:900; letter-spacing:6px; color:#fbbf24; font-family:monospace; background:rgba(0,0,0,0.35); padding:8px 18px; border-radius:8px; display:inline-block; border:1px dashed rgba(251,191,36,0.6);">
+                        :${code}
                     </div>
                     <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.4;">
-                        Verification code automatically displayed &amp; filled in the 6 boxes below. Click Verify to enter!
+                        Verification code automatically displayed &amp; filled in the boxes below to open on it. Click Verify to open!
                     </div>
                 `;
                 const digits = code.split('');
-                otpInputs.forEach((inp, idx) => {
+                const boxes = document.querySelectorAll('#otpContainer .otp-input');
+                boxes.forEach((inp, idx) => {
                     inp.value = digits[idx] || '';
                 });
-                if (otpInputs[5]) otpInputs[5].focus();
+                if (boxes[boxes.length - 1]) boxes[boxes.length - 1].focus();
             }
         }
 
@@ -591,7 +629,10 @@
             }, 1000);
         };
 
-        document.addEventListener('DOMContentLoaded', checkDeviceEmailLock);
+        document.addEventListener('DOMContentLoaded', () => {
+            checkDeviceEmailLock();
+            renderOtpBoxes(6);
+        });
 
         // Photo URL preview updater
         function updatePhotoPreview(url) {
@@ -603,21 +644,6 @@
                 img.src = '3d_avatar.jpg';
             }
         }
-
-        // Auto focus next OTP input
-        const otpInputs = document.querySelectorAll('.otp-input');
-        otpInputs.forEach((input, index) => {
-            input.addEventListener('input', (e) => {
-                if (e.target.value.length === 1 && index < otpInputs.length - 1) {
-                    otpInputs[index + 1].focus();
-                }
-            });
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Backspace' && !e.target.value && index > 0) {
-                    otpInputs[index - 1].focus();
-                }
-            });
-        });
 
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -670,11 +696,12 @@
             const btn = document.getElementById('verifyBtn');
             const errDiv = document.getElementById('otpError');
             
+            const currentBoxes = document.querySelectorAll('#otpContainer .otp-input');
             let otp = '';
-            otpInputs.forEach(input => otp += input.value);
+            currentBoxes.forEach(input => otp += input.value.trim());
             
-            if (otp.length !== 6) {
-                errDiv.textContent = "Please enter all 6 digits.";
+            if (otp.length !== currentBoxes.length) {
+                errDiv.textContent = `Please enter all ${currentBoxes.length} digits.`;
                 errDiv.classList.remove('hidden');
                 return;
             }
