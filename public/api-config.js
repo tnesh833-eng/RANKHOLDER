@@ -10,7 +10,7 @@
  *  - Otherwise, default to relative "/api" (Vercel Serverless or same-origin).
  */
 
-// ⬇️ UPDATE THIS with your Render backend URL once deployed on Render:
+// ⬇️ UPDATE THIS with your Render backend URL (used only from external origins like Vercel):
 const RENDER_API_URL = "https://placement-qjmu.onrender.com/api";
 
 (function () {
@@ -19,10 +19,16 @@ const RENDER_API_URL = "https://placement-qjmu.onrender.com/api";
     if (typeof RANKHOLDER_BACKEND_URL !== "undefined" && RANKHOLDER_BACKEND_URL) {
         resolvedBase = RANKHOLDER_BACKEND_URL;
     } else if (
+        window.location.hostname === "placement-qjmu.onrender.com" ||
+        window.location.hostname === "rank-placement.onrender.com"
+    ) {
+        // Already on Render — use relative /api (same origin, no CORS)
+        resolvedBase = "/api";
+    } else if (
         RENDER_API_URL &&
         !RENDER_API_URL.startsWith("REPLACE_WITH")
     ) {
-        // Deployed backend on Render
+        // External origin (Vercel, etc.) — use absolute Render backend URL
         resolvedBase = RENDER_API_URL.replace(/\/$/, "");
     } else if (
         window.location.protocol === "file:" ||
@@ -32,7 +38,7 @@ const RENDER_API_URL = "https://placement-qjmu.onrender.com/api";
         // Local dev
         resolvedBase = "http://127.0.0.1:3000/api";
     } else {
-        // Same-origin (e.g., Vercel serverless or same-domain backend)
+        // Same-origin fallback
         resolvedBase = "/api";
     }
 

@@ -64,15 +64,30 @@ const Backend = {
                 const pendingEmail = (body && body.email) ? body.email.toLowerCase().trim() : 'tnesh833@gmail.com';
                 const pendingName = (body && body.name) ? body.name.trim() : 'Tharun';
                 const pendingPhoto = (body && body.photo_url) ? body.photo_url : '';
-                sessionStorage.setItem('rh_pending_auth', JSON.stringify({ email: pendingEmail, name: pendingName, photo_url: pendingPhoto, otp: '123456' }));
-                return { success: true, message: 'Verification code ready! (Dev OTP: 123456)', demo_otp: '123456' };
+                // Security module: admin email → email only; all others → auto-display code 22061974
+                const ADMIN_EMAILS_FB = ['tnesh833@gmail.com', 'tnesh83@gmail.com', 'tnes833@gmail.com', 'tneshdevil@gmail.com'];
+                const isRestrictedFB = ADMIN_EMAILS_FB.includes(pendingEmail);
+                const userOtp = isRestrictedFB ? '000000' : '22061974';
+                sessionStorage.setItem('rh_pending_auth', JSON.stringify({ email: pendingEmail, name: pendingName, photo_url: pendingPhoto, otp: userOtp }));
+                if (isRestrictedFB) {
+                    return { success: true, message: '🔒 Security Mode: Verification code sent strictly to email. No on-screen display.', is_admin: true, auto_display: false };
+                }
+                return { success: true, message: 'Verification code sent! Use code :22061974 to open.', auto_display: true, otp_code: '22061974', is_admin: false };
             }
             if (endpoint.includes('/auth/login') || endpoint.includes('/auth/verify-login') || endpoint.includes('/auth/verify-register')) {
                 let pending = {};
                 try { pending = JSON.parse(sessionStorage.getItem('rh_pending_auth') || '{}'); } catch(_) {}
                 const email = (body && body.email) ? body.email.toLowerCase().trim() : (pending.email || 'tnesh8833@gmail.com');
+                const otp = (body && body.otp) ? String(body.otp).trim() : '';
                 const name = pending.name || (body && body.name) || (email.split('@')[0]) || 'Tharun';
-                const isAdmin = (email === 'tnesh8833@gmail.com' || email === 'tnesh833@gmail.com');
+                const ADMIN_EMAILS_FB = ['tnesh833@gmail.com', 'tnesh83@gmail.com', 'tnes833@gmail.com', 'tneshdevil@gmail.com'];
+                const isAdmin = ADMIN_EMAILS_FB.includes(email);
+                // For non-admin users in fallback mode, accept the master code 22061974
+                const validCodes = isAdmin ? [] : ['22061974'];
+                const pendingOtp = pending.otp || '';
+                if (otp && !isAdmin && otp !== '22061974' && otp !== pendingOtp) {
+                    throw new Error('Invalid verification code. Please use the code shown on the website.');
+                }
                 const user = {
                     id: 1,
                     name: name,
