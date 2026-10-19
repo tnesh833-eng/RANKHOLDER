@@ -1,12 +1,15 @@
 {
   "version": 2,
-  "name": "rankholder-frontend",
-  "buildCommand": "echo 'Static site — no build needed'",
-  "outputDirectory": "frontend",
+  "builds": [
+    {
+      "src": "frontend/**",
+      "use": "@vercel/static"
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/$1"
+      "dest": "/frontend/$1"
     }
   ],
   "headers": [
