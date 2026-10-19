@@ -72,7 +72,7 @@ const Backend = {
                 if (isRestrictedFB) {
                     return { success: true, message: '🔒 Security Mode: Verification code sent strictly to email. No on-screen display.', is_admin: true, auto_display: false };
                 }
-                return { success: true, message: 'Verification code sent! Use code :22061974 to open.', auto_display: true, otp_code: '22061974', is_admin: false };
+                return { success: true, message: 'Verification code sent! Use code 22061974 to open.', auto_display: true, otp_code: '22061974', is_admin: false };
             }
             if (endpoint.includes('/auth/login') || endpoint.includes('/auth/verify-login') || endpoint.includes('/auth/verify-register')) {
                 let pending = {};
