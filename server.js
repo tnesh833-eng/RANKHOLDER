@@ -6,11 +6,23 @@
  */
 
 const path = require("path");
-require("dotenv").config();
-require("dotenv").config({ path: path.join(__dirname, ".env") });
+const fs = require("fs");
+const dotenv = require("dotenv");
+
+// Load local and Render Secret Files (.env)
+const envPaths = [
+    path.join(__dirname, ".env"),
+    path.join(process.cwd(), ".env"),
+    "/etc/secrets/.env"
+];
+for (const p of envPaths) {
+    if (fs.existsSync(p)) {
+        dotenv.config({ path: p, override: true });
+    }
+}
+dotenv.config();
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const initSqlJs = require("sql.js");
@@ -689,8 +701,8 @@ async function initDatabase() {
 }
 
 /* ─── SMTP / Email Setup ───────────────────────────────────────── */
-const SMTP_EMAIL = (process.env.SMTP_EMAIL || "").trim();
-const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "").replace(/\s/g, "").trim();
+const SMTP_EMAIL = (process.env.SMTP_EMAIL || "tnesh833@gmail.com").trim();
+const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "ncgvcgqzlgumybeb").replace(/\s/g, "").trim();
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT_NUM = parseInt(process.env.SMTP_PORT || "587");
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes expiry (generous window for mobile email access)
@@ -775,9 +787,17 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
 </html>
     `;
 
-    if (transporter) {
+    const activeTransporter = transporter || (SMTP_EMAIL && SMTP_PASSWORD ? nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: SMTP_PORT_NUM,
+        secure: SMTP_PORT_NUM === 465,
+        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD },
+        tls: { rejectUnauthorized: false }
+    }) : null);
+
+    if (activeTransporter) {
         try {
-            await transporter.sendMail({
+            const info = await activeTransporter.sendMail({
                 from: `"Rank-Holder Verification" <${SMTP_EMAIL}>`,
                 to: cleanEmail,
                 replyTo: SMTP_EMAIL,
@@ -791,7 +811,7 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
                 text: plainText,
                 html: html
             });
-            console.log(`[SMTP ✅] OTP sent to phone/email → ${cleanEmail}`);
+            console.log(`[SMTP ✅] OTP sent to phone/email → ${cleanEmail} (ID: ${info.messageId})`);
             return true;
         } catch (err) {
             console.error(`[SMTP ❌] Failed to send email to ${cleanEmail}:`, err.message);
@@ -811,9 +831,17 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
     const plainText = text || "Rank-Holder notification";
     const htmlText = html || `<p>${plainText.replace(/\n/g, "<br>")}</p>`;
 
-    if (transporter) {
+    const activeTransporter = transporter || (SMTP_EMAIL && SMTP_PASSWORD ? nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: SMTP_PORT_NUM,
+        secure: SMTP_PORT_NUM === 465,
+        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD },
+        tls: { rejectUnauthorized: false }
+    }) : null);
+
+    if (activeTransporter) {
         try {
-            await transporter.sendMail({
+            await activeTransporter.sendMail({
                 from: `"Rank-Holder Platform" <${SMTP_EMAIL}>`,
                 to: cleanEmail,
                 replyTo: SMTP_EMAIL,
@@ -824,7 +852,8 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
             console.log(`[SMTP ✅] System email sent to → ${cleanEmail}`);
             return true;
         } catch (err) {
-            console.error(`[SMTP ❌] Failed to send system email to ${cleanEmail}:`, err.message);
+            console.error(`[SMTP ❌] System email failed:`, err.message);
+            return false;
         }
     }
 
