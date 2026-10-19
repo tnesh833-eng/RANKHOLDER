@@ -351,8 +351,28 @@ function getUserFromToken(token) {
     if (!token) return null;
     const now = new Date().toISOString();
     const sess = dbGet("SELECT * FROM sessions WHERE session_token = ? AND expires_at > ?", [token, now]);
-    if (!sess) return null;
-    return dbGet("SELECT * FROM users WHERE id = ?", [sess.user_id]);
+    if (sess) {
+        return dbGet("SELECT * FROM users WHERE id = ?", [sess.user_id]);
+    }
+    // Also validate Supabase Auth JWT tokens (header.payload.signature)
+    try {
+        if (typeof token === "string" && token.includes(".")) {
+            const parts = token.split(".");
+            if (parts.length === 3) {
+                const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+                // Check JWT expiration if exp claim is present
+                if (payload.exp && (payload.exp * 1000) < Date.now()) {
+                    return null; // Token expired
+                }
+                const email = payload.email || (payload.user_metadata && payload.user_metadata.email);
+                if (email) {
+                    const user = findUserByEmail(email);
+                    if (user) return user;
+                }
+            }
+        }
+    } catch (_) {}
+    return null;
 }
 
 function isEmailBlocked(email) {

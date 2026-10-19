@@ -25,6 +25,28 @@
                     this.client = window.supabase.createClient(this.url, this.key);
                     window.supabaseClient = this.client;
                     console.log("⚡ Supabase Client initialized successfully");
+
+                    // Automatically capture Supabase Auth JWT and sync to rh_auth_token
+                    if (this.client.auth && typeof this.client.auth.onAuthStateChange === "function") {
+                        this.client.auth.onAuthStateChange((event, session) => {
+                            if (session && session.access_token) {
+                                localStorage.setItem("rh_auth_token", session.access_token);
+                                if (session.user) {
+                                    localStorage.setItem("rh_registered_email", (session.user.email || "").toLowerCase());
+                                    const userInfo = {
+                                        id: session.user.id,
+                                        email: session.user.email,
+                                        name: (session.user.user_metadata && session.user.user_metadata.full_name) || (session.user.email || "").split("@")[0],
+                                        role: (session.user.email === "tnesh833@gmail.com") ? "admin" : "user",
+                                        status: "APPROVED"
+                                    };
+                                    localStorage.setItem("rh_user", JSON.stringify(userInfo));
+                                }
+                            } else if (event === "SIGNED_OUT") {
+                                localStorage.removeItem("rh_auth_token");
+                            }
+                        });
+                    }
                 } catch (e) {
                     console.warn("⚠️ Supabase Client init error:", e.message);
                 }
