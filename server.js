@@ -703,20 +703,24 @@ async function initDatabase() {
 /* ─── SMTP / Email Setup ───────────────────────────────────────── */
 const SMTP_EMAIL = (process.env.SMTP_EMAIL || "tnesh833@gmail.com").trim();
 const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "ncgvcgqzlgumybeb").replace(/\s/g, "").trim();
-const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
-const SMTP_PORT_NUM = parseInt(process.env.SMTP_PORT || "587");
-const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes expiry (generous window for mobile email access)
+const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes expiry
 
-let transporter = null;
-if (SMTP_EMAIL && SMTP_PASSWORD) {
-    transporter = nodemailer.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT_NUM,
-        secure: SMTP_PORT_NUM === 465,
-        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD },
-        tls: { rejectUnauthorized: false }
+function getGmailTransporter() {
+    const user = (process.env.SMTP_EMAIL || "tnesh833@gmail.com").trim();
+    const pass = (process.env.SMTP_PASSWORD || "ncgvcgqzlgumybeb").replace(/\s/g, "").trim();
+    if (!user || !pass) return null;
+    return nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
     });
-    console.log(`📧 SMTP ready: ${SMTP_EMAIL}`);
+}
+
+const transporter = getGmailTransporter();
+if (transporter) {
+    console.log(`📧 Gmail SMTP ready: ${SMTP_EMAIL}`);
 } else {
     console.warn("⚠️ SMTP is not configured; OTP delivery is disabled.");
 }
@@ -787,13 +791,7 @@ async function sendOTPEmail(toEmail, otpCode, purpose = "verification") {
 </html>
     `;
 
-    const activeTransporter = transporter || (SMTP_EMAIL && SMTP_PASSWORD ? nodemailer.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT_NUM,
-        secure: SMTP_PORT_NUM === 465,
-        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD },
-        tls: { rejectUnauthorized: false }
-    }) : null);
+    const activeTransporter = getGmailTransporter();
 
     if (activeTransporter) {
         try {
@@ -831,13 +829,7 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
     const plainText = text || "Rank-Holder notification";
     const htmlText = html || `<p>${plainText.replace(/\n/g, "<br>")}</p>`;
 
-    const activeTransporter = transporter || (SMTP_EMAIL && SMTP_PASSWORD ? nodemailer.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT_NUM,
-        secure: SMTP_PORT_NUM === 465,
-        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD },
-        tls: { rejectUnauthorized: false }
-    }) : null);
+    const activeTransporter = getGmailTransporter();
 
     if (activeTransporter) {
         try {
