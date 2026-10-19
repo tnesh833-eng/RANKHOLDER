@@ -18,12 +18,14 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 const Razorpay = require("razorpay");
 const { createClient } = require("@supabase/supabase-js");
+const SupabaseService = require("./supabase-service");
+const { loadBalancerMiddleware, getLoadBalancerStatus, aiLoadBalancer } = require("./load-balancer");
 
 // Supabase Init
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_-newRs_kuToUhqmXSvTcNA_e3RVbDPV";
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-ref")) {
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_-newRs_kuToUhqmXSvTcNA_e3RVbDPV";
+let supabase = SupabaseService.getClient();
+if (!supabase && SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes("your-project-ref")) {
     try {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
         console.log("⚡ Supabase Client initialized successfully");
@@ -52,7 +54,7 @@ const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
 const SUBSCRIPTION_AMOUNT_PAISE = 600; // ₹6 in paise
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "tnesh833@gmail.com").toLowerCase().trim();
 const ADMIN_EMAILS = ["tnesh833@gmail.com", "tnes833@gmail.com", "tneshdevil@gmail.com"];
 function isAdminEmail(email) {
@@ -111,6 +113,21 @@ app.use(express.json({
     }
 }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(loadBalancerMiddleware);
+
+// Load Balancer health check & real-time load probes
+app.get("/api/lb/health", (_req, res) => {
+    res.json({
+        status: "healthy",
+        uptime_seconds: Math.floor(process.uptime()),
+        pid: process.pid,
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get("/api/lb/status", (_req, res) => {
+    res.json(getLoadBalancerStatus());
+});
 
 // Static asset serving
 const FRONTEND_DIR = path.join(__dirname, "frontend");
@@ -125,8 +142,24 @@ app.get("/api/supabase/config", (_req, res) => {
     res.json({
         url: SUPABASE_URL,
         publishableKey: SUPABASE_KEY,
-        configured: !!(supabase)
+        configured: SupabaseService.isConfigured() || !!(supabase)
     });
+});
+
+// Supabase live status and table diagnostic endpoint
+app.get("/api/supabase/status", async (_req, res) => {
+    const status = await SupabaseService.getStatus();
+    res.json(status);
+});
+
+// Admin-triggered SQLite to Supabase data migration
+app.post("/api/supabase/sync-all", requireAdmin, async (_req, res) => {
+    try {
+        const report = await SupabaseService.syncAllFromSqlite(dbAll);
+        res.json({ success: true, report });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /* ─── Database Path ─────────────────────────────────────────────── */
@@ -856,6 +889,10 @@ app.post("/api/auth/verify-register", (req, res) => {
     const user = dbGet("SELECT * FROM users WHERE email = ?", [e]);
     if (!user) return res.status(404).json({ error: "User not found." });
 
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.syncUser(user).catch(err => console.warn("[Supabase] user sync warning:", err.message));
+    }
+
     const token = createSessionToken(user.id);
     res.cookie("token", token, {
         httpOnly: true,
@@ -1422,11 +1459,17 @@ app.post("/api/notifications/clear", (_req, res) => {
     return res.json({ success: true });
 });
 
-app.get("/api/jobs", requireAuth, (_req, res) => {
-    return res.json({ jobs: dbAll("SELECT * FROM jobs ORDER BY id DESC") });
+app.get("/api/jobs", requireAuth, async (_req, res) => {
+    if (SupabaseService.isConfigured()) {
+        const remoteJobs = await SupabaseService.getJobs();
+        if (remoteJobs && remoteJobs.length > 0) {
+            return res.json({ jobs: remoteJobs, source: "supabase" });
+        }
+    }
+    return res.json({ jobs: dbAll("SELECT * FROM jobs ORDER BY id DESC"), source: "sqlite" });
 });
 
-app.post("/api/jobs", requireAuth, (req, res) => {
+app.post("/api/jobs", requireAuth, async (req, res) => {
     const { title, company, location = "India", type = "Full-time", experience = "Fresher",
         salary = "Best in Industry", skills = "", link = "#",
         internship_link, hr_contact, badge = "New Opening" } = req.body || {};
@@ -1437,28 +1480,54 @@ app.post("/api/jobs", requireAuth, (req, res) => {
             internship_link || link,
             hr_contact || `careers@${company.toLowerCase().replace(/\s/g, "")}.com`,
             badge]);
-    return res.status(201).json(dbGet("SELECT * FROM jobs WHERE id = ?", [lastInsertId()]));
+    const newJob = dbGet("SELECT * FROM jobs WHERE id = ?", [lastInsertId()]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertJob({
+            title, company, location, type, experience, salary, skills, link,
+            internship_link: internship_link || link,
+            hr_contact: hr_contact || `careers@${company.toLowerCase().replace(/\s/g, "")}.com`,
+            badge
+        }).catch(err => console.warn("[Supabase] job sync warning:", err.message));
+    }
+    return res.status(201).json(newJob);
 });
 
-app.delete("/api/jobs/:id", requireAuth, (req, res) => {
+app.delete("/api/jobs/:id", requireAuth, async (req, res) => {
     dbRun("DELETE FROM jobs WHERE id = ?", [req.params.id]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.deleteJob(req.params.id).catch(err => console.warn("[Supabase] job delete warning:", err.message));
+    }
     return res.json({ success: true, deleted_id: +req.params.id });
 });
 
-app.get("/api/prospects", requireAuth, (_req, res) => {
-    return res.json({ prospects: dbAll("SELECT * FROM prospects ORDER BY id DESC") });
+app.get("/api/prospects", requireAuth, async (_req, res) => {
+    if (SupabaseService.isConfigured()) {
+        const remoteProspects = await SupabaseService.getProspects();
+        if (remoteProspects && remoteProspects.length > 0) {
+            return res.json({ prospects: remoteProspects, source: "supabase" });
+        }
+    }
+    return res.json({ prospects: dbAll("SELECT * FROM prospects ORDER BY id DESC"), source: "sqlite" });
 });
 
-app.post("/api/prospects", requireAuth, (req, res) => {
+app.post("/api/prospects", requireAuth, async (req, res) => {
     const { name, company, linkedin, status = "Pending", idea = "" } = req.body || {};
     if (!name || !company || !linkedin) return res.status(400).json({ error: "Name, company, linkedin required." });
     dbRun("INSERT INTO prospects (name,company,linkedin,status,idea) VALUES (?,?,?,?,?)",
         [name, company, linkedin, status, idea]);
-    return res.status(201).json(dbGet("SELECT * FROM prospects WHERE id = ?", [lastInsertId()]));
+    const newProspect = dbGet("SELECT * FROM prospects WHERE id = ?", [lastInsertId()]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertProspect({ name, company, linkedin, status, idea })
+            .catch(err => console.warn("[Supabase] prospect sync warning:", err.message));
+    }
+    return res.status(201).json(newProspect);
 });
 
-app.delete("/api/prospects/:id", requireAuth, (req, res) => {
+app.delete("/api/prospects/:id", requireAuth, async (req, res) => {
     dbRun("DELETE FROM prospects WHERE id = ?", [req.params.id]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.deleteProspect(req.params.id).catch(err => console.warn("[Supabase] prospect delete warning:", err.message));
+    }
     return res.json({ success: true, deleted_id: +req.params.id });
 });
 
@@ -1475,6 +1544,10 @@ app.post("/api/games/scores", requireAuth, (req, res) => {
     dbRun(`INSERT INTO game_scores (user_id, game_name, high_score) VALUES (?, ?, ?)
            ON CONFLICT(user_id, game_name) DO UPDATE SET
            high_score = MAX(high_score, excluded.high_score), updated_at = datetime('now')`, [req.currentUser.id, game_name, score]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.upsertGameScore(req.currentUser.id, game_name, score)
+            .catch(err => console.warn("[Supabase] game score sync warning:", err.message));
+    }
     return res.json({ success: true, game_name, score });
 });
 
@@ -1514,6 +1587,10 @@ app.post("/api/feedback", async (req, res) => {
     if (!e || !e.includes("@")) return res.status(400).json({ error: "Valid email address is required." });
 
     dbRun("INSERT INTO feedbacks (user_name, user_email, rating, message) VALUES (?, ?, ?, ?)", [n, e, r, msg]);
+    if (SupabaseService.isConfigured()) {
+        SupabaseService.insertFeedback({ user_name: n, user_email: e, rating: r, message: msg })
+            .catch(err => console.warn("[Supabase] feedback sync warning:", err.message));
+    }
     const feedbackUser = dbGet("SELECT id FROM users WHERE email = ?", [e]);
     logAdminActivity(feedbackUser ? feedbackUser.id : null, "FEEDBACK_SUBMITTED", `${n} submitted a ${r}/5 rating: ${msg.slice(0, 160)}`);
     const stars = "⭐".repeat(r);
@@ -1551,14 +1628,13 @@ function filterProfanity(text) {
 // Ordered list of Gemini models to try. The API rotates model names over time,
 // so we attempt each in turn and use the first one that returns real text.
 const GEMINI_MODEL_FALLBACKS = [
-    "gemini-2.5-flash",
-    "gemini-3.8-flash",
-    "gemini-flash-latest"
+    "gemini-flash-latest",
+    "gemini-3.8-flash"
 ];
 // Fast response timeouts so the UI never hangs
 const THINKING_TOKEN_HEADROOM = 256;
-const GEMINI_REQUEST_TIMEOUT_MS = 4000;
-const GEMINI_TOTAL_BUDGET_MS = 5000;
+const GEMINI_REQUEST_TIMEOUT_MS = 12000;
+const GEMINI_TOTAL_BUDGET_MS = 15000;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -1599,8 +1675,11 @@ async function callGeminiRaw(prompt, maxTokens = 500) {
         for (const model of GEMINI_MODEL_FALLBACKS) {
             if (Date.now() > deadline) break;
             try {
-                return await callGeminiModel(model, apiKey, prompt, maxTokens);
+                const result = await callGeminiModel(model, apiKey, prompt, maxTokens);
+                aiLoadBalancer.recordSuccess("gemini");
+                return result;
             } catch (e) {
+                aiLoadBalancer.recordFailure("gemini", e);
                 lastError = e;
                 console.warn(`[Gemini] ${model} attempt ${pass + 1} failed: ${e.message}`);
             }
@@ -1629,49 +1708,354 @@ app.post("/api/ai/generate", requireAuth, async (req, res) => {
     const fallbackReply = `Great inquiry on "${message}". In modern industry practices, focusing on modular architecture, comprehensive documentation, and continuous integration yields the highest quality outcomes. How would you like to proceed with the next phase?`;
     return res.json({ reply: fallbackReply, mode, fluency_boost: 5 });
 });
+function extractCoreTopic(query) {
+    if (!query) return "";
+    let clean = query.replace(/^(can you (please )?)?(help on|tell me about|tell me|explain( to me)?|what is|what are|how does|how do|how to|prepare for|search for|search|about|i want to learn( about)?|information (about|on)|guide for|overview of|teach me( about)?|give me details on|notes on)\s+/i, '').trim();
+    clean = clean.replace(/[?!.,]+$/, '').trim();
+    return clean || query.trim();
+}
 
-app.post("/api/ai/chat", requireAuth, async (req, res) => {
-    const { message = "", mode = "friendly", topic = "General Interview" } = req.body || {};
+/* ─── Wikipedia & YouTube Research Fetchers ──────────────────── */
+async function fetchWikiInfo(query) {
+    if (!query || !query.trim()) return null;
+    const searchTarget = extractCoreTopic(query);
+
+    try {
+        // 1. Try direct summary first
+        const directRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTarget.replace(/\s+/g, '_'))}`, {
+            headers: { 'User-Agent': 'RankHolder/1.0 (Educational Career Platform)' },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (directRes.ok) {
+            const data = await directRes.json();
+            if (data && data.extract && data.type !== 'disambiguation') {
+                return {
+                    title: data.title,
+                    extract: data.extract,
+                    url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title)}`
+                };
+            }
+        }
+
+        // 2. Search Wikipedia API for top match
+        const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTarget)}&format=json&origin=*`, {
+            headers: { 'User-Agent': 'RankHolder/1.0 (Educational Career Platform)' },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const topHit = searchData?.query?.search?.[0];
+            if (topHit && topHit.title) {
+                const subRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topHit.title.replace(/\s+/g, '_'))}`, {
+                    headers: { 'User-Agent': 'RankHolder/1.0 (Educational Career Platform)' },
+                    signal: AbortSignal.timeout(4000)
+                });
+                if (subRes.ok) {
+                    const subData = await subRes.json();
+                    return {
+                        title: subData.title || topHit.title,
+                        extract: subData.extract || (topHit.snippet ? topHit.snippet.replace(/<[^>]*>/g, '') : "Full Wikipedia article available."),
+                        url: subData.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(topHit.title)}`
+                    };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("[Wiki fetch warning]:", e.message);
+    }
+
+    return {
+        title: searchTarget,
+        extract: `Explore encyclopedic documentation, historical background, and technical standards for "${searchTarget}" on Wikipedia.`,
+        url: `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(searchTarget)}`
+    };
+}
+
+function generateYouTubeRecommendations(query) {
+    const clean = extractCoreTopic(query);
+
+    return [
+        {
+            title: `${clean} — Complete Masterclass & Step-by-Step Practical Guide`,
+            desc: `Full concept breakdown covering architecture, practical fundamentals, and real-world execution.`,
+            url: `https://www.youtube.com/results?search_query=${encodeURIComponent(clean + " complete tutorial guide")}`
+        },
+        {
+            title: `${clean} — Top Interview Questions & Practical STAR Answers`,
+            desc: `Key behavioral and technical questions asked by Tier-1 product companies and MNC recruiters.`,
+            url: `https://www.youtube.com/results?search_query=${encodeURIComponent(clean + " interview questions and answers")}`
+        },
+        {
+            title: `${clean} — Real-World System Architecture & Best Practices`,
+            desc: `Deep dive into production case studies, common bottlenecks, and scalable design patterns.`,
+            url: `https://www.youtube.com/results?search_query=${encodeURIComponent(clean + " real world practical project")}`
+        }
+    ];
+}
+
+function generateDetailedAnswer(query, mode = "friendly") {
+    const q = (query || "").toLowerCase();
+
+    if (/interview|job|hire|hr round|screening|placement/i.test(q)) {
+        return [
+            `### 🎯 Complete Blueprint to Master Corporate & HR Interviews`,
+            ``,
+            `Cracking high-stakes interviews at top tech firms (Google, Microsoft, AWS, ZOHO, TATA) requires a blend of structured technical articulation and clear behavioral presence. Here is the proven 4-pillar framework:`,
+            ``,
+            `#### 1. The 90-Second Executive Introduction (Elevator Pitch)`,
+            `Never recite your resume line-by-line. Follow this crisp 3-part sequence:`,
+            `- **Present**: Current status, graduation degree/domain, and core technology stack you specialize in.`,
+            `- **Past**: 1-2 major projects you built from scratch and the concrete problem they solved.`,
+            `- **Future**: Why this specific company aligns with your ambition to build scalable, reliable software.`,
+            ``,
+            `#### 2. The STAR Delivery Framework for Behavioral Questions`,
+            `When asked situational questions ("Tell me about a conflict", "Describe a challenging bug"):`,
+            `- **Situation**: 15 seconds context on the project constraints.`,
+            `- **Task**: Your specific individual ownership in that problem.`,
+            `- **Action**: The technical or communication choices you executed (focus on "I", not "we").`,
+            `- **Result**: Quantifiable business or technical outcome (e.g. *reduced load time by 35%*, *zero downtime deployment*).`,
+            ``,
+            `#### 3. Core Technical & Problem-Solving Articulation`,
+            `- Always verbalize your thought process before writing code or proposing architecture.`,
+            `- Ask clarifying questions upfront to confirm edge cases, data scale, and constraints.`,
+            `- If you hit a roadblock, communicate your hypotheses calmly — interviewers evaluate how you think under ambiguity.`,
+            ``,
+            `#### 4. High-Impact Closing Questions for the Panel`,
+            `When invited to ask questions, ask insightful questions that show intellectual curiosity:`,
+            `- *"What is the most technically complex architectural bottleneck your team solved in the last quarter?"*`,
+            `- *"How does your engineering organization foster continuous mentorship and technical excellence?"*`
+        ].join('\n');
+    }
+
+    if (/react|frontend|javascript|web/i.test(q)) {
+        return [
+            `### ⚛️ Comprehensive Guide: React & Modern Frontend Architecture`,
+            ``,
+            `React is a declarative, component-based JavaScript library designed for building dynamic, high-performance user interfaces.`,
+            ``,
+            `#### 1. Fundamental Concepts`,
+            `- **Virtual DOM (VDOM)**: An in-memory lightweight representation of the real DOM. React computes differences (diffing algorithm) and updates only the modified nodes (reconciliation).`,
+            `- **Component Lifecycle & Hooks**: Functional components leverage hooks like \`useState\` (local state), \`useEffect\` (side effects/subscriptions), and \`useMemo\`/\`useCallback\` (memoization).`,
+            `- **Unidirectional Data Flow**: Data flows downwards via props, while user interactions trigger callbacks upwards, ensuring predictable debugging.`,
+            ``,
+            `#### 2. Performance Optimization Techniques`,
+            `- Code splitting and lazy loading via \`React.lazy\` and dynamic imports.`,
+            `- Avoiding unnecessary re-renders using \`React.memo\` and stable dependency arrays.`,
+            `- Efficient state management (Zustand, Redux Toolkit, or Context API for scoped state).`,
+            ``,
+            `#### 3. Interview Focus Areas`,
+            `- Explain the difference between controlled vs uncontrolled components.`,
+            `- How does the React 18 Fiber architecture enable Concurrent Rendering?`
+        ].join('\n');
+    }
+
+    if (/python|backend|fastapi|django/i.test(q)) {
+        return [
+            `### 🐍 Comprehensive Guide: Python & Backend Engineering`,
+            ``,
+            `Python is an expressive, high-level language renowned for developer velocity, robust standard libraries, and universal adoption across backend APIs, data science, and AI systems.`,
+            ``,
+            `#### 1. Core Language Foundations`,
+            `- **Memory Management**: Automatic garbage collection combining reference counting and a cyclic garbage collector.`,
+            `- **GIL (Global Interpreter Lock)**: A mutex that protects access to Python objects, preventing multiple threads from executing Python bytecodes simultaneously. Use \`multiprocessing\` or \`asyncio\` for I/O concurrency.`,
+            `- **Generators & Iterators**: Using \`yield\` allows streaming evaluation of large datasets with $O(1)$ memory consumption.`,
+            ``,
+            `#### 2. Modern Backend Frameworks`,
+            `- **FastAPI**: Asynchronous, type-hinted REST APIs with automatic OpenAPI/Swagger documentation.`,
+            `- **Django**: Full-battery MVC framework with integrated ORM, authentication, and admin capabilities.`,
+            ``,
+            `#### 3. Interview Focus Areas`,
+            `- Differences between deep copy vs shallow copy.`,
+            `- Decorators, \`*args\`/\`**kwargs\` unpacking, and metaclasses.`
+        ].join('\n');
+    }
+
+    // Default Comprehensive Answer
+    const topicCapitalized = query.charAt(0).toUpperCase() + query.slice(1);
+    return [
+        `### 📚 Comprehensive Technical Breakdown: ${topicCapitalized}`,
+        ``,
+        `Here is an in-depth, structured explanation of **${query}** designed to build core foundational mastery and interview readiness:`,
+        ``,
+        `#### 1. Core Definition & First Principles`,
+        `**${query}** represents an essential concept in modern engineering and professional development. Mastering it requires understanding both its foundational mechanisms and its practical utility in real-world environments.`,
+        ``,
+        `#### 2. Step-by-Step Practical Breakdown`,
+        `1. **Analyze Constraints**: Identify the fundamental inputs, business requirements, and performance boundaries.`,
+        `2. **Architect the Solution**: Choose modular, maintainable paradigms that scale reliably under production load.`,
+        `3. **Validate & Test**: Implement robust edge-case validation, comprehensive unit tests, and continuous monitoring.`,
+        ``,
+        `#### 3. Corporate & Interview Perspective`,
+        `- When explaining this topic in an interview, ground your explanation in concrete metrics and real projects you built.`,
+        `- Highlight trade-offs: why this approach is preferred over alternatives, and how you mitigate potential bottlenecks.`,
+        ``,
+        `Review the verified Wikipedia documentation and curated YouTube masterclasses below for full architectural deep-dives.`
+    ].join('\n');
+}
+
+/* ─── AI English Communication & Comprehensive Search Endpoint ─────── */
+function analyzeEnglishLocally(message, mode = "friendly", topic = "Corporate Communication") {
+    const text = (message || "").trim();
+    const corrections = [];
+    let polished = text;
+
+    const rules = [
+        { regex: /\b(i am having|i'm having)\b/gi, suggestion: "I have", reason: "In professional English, use 'I have' to express possession or experience rather than the continuous tense." },
+        { regex: /\b(am completed|was completed)\b/gi, suggestion: "completed", reason: "Use active past tense ('I completed') rather than passive construction when describing personal accomplishments." },
+        { regex: /\b(did went|did saw|did came|did took|did spoke)\b/gi, suggestion: "did go / did see / did come / did take / did speak", reason: "After auxiliary 'did', the base form of the verb should be used." },
+        { regex: /\bcan able to\b/gi, suggestion: "can", reason: "'Can' and 'able to' are redundant together; choose either 'can' or 'am able to'." },
+        { regex: /\b(passed out|passout)\b/gi, suggestion: "graduated", reason: "In international corporate contexts, 'graduated from university' is standard; 'passed out' can mean lost consciousness." },
+        { regex: /\bmyself\s+([A-Za-z]+)\b/gi, suggestion: "My name is $1", reason: "Reflexive pronouns like 'myself' should not be used as the subject of an introductory sentence. Say 'My name is [Name]' or 'I am [Name]'." },
+        { regex: /\bany doubts\b/gi, suggestion: "any questions or points of clarification", reason: "'Doubts' often implies suspicion or skepticism; 'questions' is the professional standard." },
+        { regex: /\brevert back\b/gi, suggestion: "revert / reply", reason: "'Back' is redundant with 'revert', as revert already means to return." },
+        { regex: /\bdiscuss about\b/gi, suggestion: "discuss", reason: "'Discuss' is a transitive verb that directly takes an object without the preposition 'about'." },
+        { regex: /\bcoping up with\b/gi, suggestion: "coping with", reason: "The correct idiom is 'coping with' (without 'up')." },
+        { regex: /\bgood in\b/gi, suggestion: "proficient in / skilled in", reason: "Use 'proficient in' or 'skilled at' for professional skill descriptions." },
+        { regex: /\b(wanna|gonna|gotta)\b/gi, suggestion: "want to / going to / have to", reason: "Casual contractions should be avoided in corporate interviews." },
+        { regex: /\b(more better|most best)\b/gi, suggestion: "better / best", reason: "Double comparatives and superlatives are grammatically non-standard." },
+        { regex: /\bi\b/g, suggestion: "I", reason: "The personal pronoun 'I' must always be capitalized." }
+    ];
+
+    rules.forEach(rule => {
+        if (rule.regex.test(text)) {
+            const matches = text.match(rule.regex);
+            const original = matches ? matches[0] : "";
+            corrections.push({
+                original: original,
+                suggestion: rule.suggestion,
+                reason: rule.reason
+            });
+            polished = polished.replace(rule.regex, rule.suggestion);
+        }
+    });
+
+    if (polished.length > 0) {
+        polished = polished.charAt(0).toUpperCase() + polished.slice(1);
+        if (!/[.!?]$/.test(polished)) polished += ".";
+    }
+
+    const words = text.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+    let grammarScore = Math.max(65, 100 - (corrections.length * 9));
+    let fluencyScore = Math.min(98, Math.max(70, 75 + Math.min(18, Math.floor(wordCount * 1.4)) - (corrections.length * 4)));
+    let toneScore = /please|thank|appreciate|collaborate|experience|project|solution|deliver|achieve/i.test(text) ? 94 : 86;
+
+    const vocabBank = [
+        { word: "Spearheaded", meaning: "Led an initiative from conception to successful execution", example: "I spearheaded the cross-functional deployment of our new system." },
+        { word: "Leveraged", meaning: "Used existing resources or skills to their maximum advantage", example: "We leveraged cloud-native pipelines to reduce latency by 35%." },
+        { word: "Facilitated", meaning: "Made a process easier or helped a team achieve consensus", example: "I facilitated bi-weekly technical alignment sessions across engineering squads." },
+        { word: "Pragmatic", meaning: "Dealing with challenges sensibly and realistically based on practical results", example: "Our architecture adopted a pragmatic balance between velocity and rigor." },
+        { word: "Synthesized", meaning: "Combined complex ideas or diverse datasets into a cohesive whole", example: "I synthesized stakeholder feedback into concrete technical specifications." }
+    ];
+    const vocabulary = [vocabBank[wordCount % vocabBank.length], vocabBank[(wordCount + 2) % vocabBank.length]];
+
+    const tips = [
+        "Structure your answers using the BLUF technique (Bottom Line Up Front) to project immediate executive clarity.",
+        "Pause for 1-2 seconds before speaking to structure your thought rather than using filler words like 'um' or 'basically'.",
+        "Maintain upright, open body posture and an even speaking cadence (130-150 words per minute) to project confidence.",
+        "When explaining an achievement, always quantify your impact (e.g. 'reduced processing time by 40%')."
+    ];
+    const tip = tips[wordCount % tips.length];
+
+    return {
+        reply: generateDetailedAnswer(message, mode),
+        polished: polished || text,
+        corrections,
+        vocabulary,
+        scores: {
+            fluency: fluencyScore,
+            grammar: grammarScore,
+            tone: toneScore
+        },
+        tip
+    };
+}
+
+app.post("/api/ai/chat", async (req, res) => {
+    const header = req.headers["authorization"] || "";
+    let token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    if (!token && req.cookies && req.cookies.token) token = req.cookies.token;
+    const user = getUserFromToken(token);
+    if (user && user.status === 'BLOCKED') {
+        return res.status(403).json({ error: "Your account has been blocked by the administrator." });
+    }
+
+    const { message = "", mode = "friendly", topic = "Professional Career & Technical Knowledge" } = req.body || {};
     if (!message.trim()) return res.status(400).json({ error: "Empty message." });
 
-    let system_prompt = `You are an AI interview partner and a real-time English communication assistant. Act as a real-time English communication assistant, responding promptly and naturally to all interactions, ensuring clear and professional language usage. Topic: ${topic}. Mode: ${mode}.
-Respond strictly as JSON with:
+    // Fetch Wikipedia and YouTube recommendations in parallel
+    const [wikiInfo, youtubeRecs] = await Promise.all([
+        fetchWikiInfo(message),
+        Promise.resolve(generateYouTubeRecommendations(message))
+    ]);
+
+    const systemPrompt = `You are an elite corporate technical instructor, senior MNC hiring manager, and English communication coach.
+The user submitted this question/search: "${message}".
+
+TASK:
+1. Provide a COMPLETE, THOROUGH, IN-DEPTH ANSWER directly explaining their question/topic in full detail. Include key concepts, step-by-step breakdown, practical examples, and interview relevance. Do NOT give a brief 2-sentence conversational greeting.
+2. Provide constructive English communication coaching: polished corporate rephrase, grammar corrections (if any), impressive vocabulary, and performance scores.
+
+Respond strictly as a valid JSON object matching this schema (do NOT wrap in markdown or backticks):
 {
-  "reply": "<your verbal response to the candidate>",
-  "corrections": ["<grammar correction if any, empty array if none>"]
+  "reply": "<Your complete, thorough, in-depth formatted answer with markdown headings and bullet points>",
+  "polished": "<An executive, polished, corporate rephrase of what the candidate asked/said>",
+  "corrections": [
+    {
+      "original": "<part containing mistake>",
+      "suggestion": "<corrected phrasing>",
+      "reason": "<clear 1-sentence grammar or clarity explanation>"
+    }
+  ],
+  "vocabulary": [
+    {
+      "word": "<impressive corporate word>",
+      "meaning": "<short practical definition>",
+      "example": "<how to use it in an interview answer>"
+    }
+  ],
+  "scores": {
+    "fluency": <integer 65-98>,
+    "grammar": <integer 65-98>,
+    "tone": <integer 65-98>
+  },
+  "tip": "<1 concrete actionable speech, pacing, or interview delivery tip>"
 }`;
 
     try {
         if (process.env.GEMINI_API_KEY) {
-            let text = await callGeminiRaw(`${system_prompt}\n\nCandidate said: "${message}"`, 500);
-            if (text) {
-                text = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/g, "").trim();
-                const json = JSON.parse(text);
-                // Clean raw HTML tags that Gemini might leak into the reply text
-                let cleanReply = (json.reply || "I understand. Let's continue.");
-                cleanReply = cleanReply.replace(/<\/?(b|i|u|br|p|em|strong|span|div)[^>]*>/gi, (match) => {
-                    // Convert real formatting tags to newlines/markdown equivalents
-                    if (/^<br/i.test(match)) return '\n';
-                    if (/^<\//i.test(match)) return '';
-                    return '';
-                });
-                return res.json({
-                    reply: cleanReply,
-                    corrections: json.corrections || [],
-                    mode,
-                    fluency_boost: (json.corrections && json.corrections.length > 0) ? -2 : 5
-                });
+            let rawText = await callGeminiRaw(systemPrompt, 1800);
+            if (rawText) {
+                rawText = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/g, "").trim();
+                const json = JSON.parse(rawText);
+                if (json && json.reply) {
+                    return res.json({
+                        reply: json.reply,
+                        wikipedia: wikiInfo,
+                        youtube: youtubeRecs,
+                        polished: json.polished || message,
+                        corrections: Array.isArray(json.corrections) ? json.corrections : [],
+                        vocabulary: Array.isArray(json.vocabulary) ? json.vocabulary : [],
+                        scores: {
+                            fluency: json.scores?.fluency || 90,
+                            grammar: json.scores?.grammar || 92,
+                            tone: json.scores?.tone || 90
+                        },
+                        tip: json.tip || "Structure your points clearly using Situation, Task, Action, and Result (STAR)."
+                    });
+                }
             }
         }
     } catch (e) {
-        console.warn("AI chat external call:", e.message);
+        console.warn("[English AI Chat] Gemini call failed or timed out, using comprehensive local engine:", e.message);
     }
 
+    // Comprehensive local engine fallback
+    const localAnalysis = analyzeEnglishLocally(message, mode, topic);
     return res.json({
-        reply: `That was well articulated! When discussing ${topic}, highlighting specific measurable metrics or lessons learned will further strengthen your answer. What was the most challenging part of that experience?`,
-        corrections: [],
-        mode,
-        fluency_boost: 5
+        ...localAnalysis,
+        wikipedia: wikiInfo,
+        youtube: youtubeRecs
     });
 });
 
@@ -1730,6 +2114,18 @@ const TOP_COMPANY_INTERVIEWS = {
             "Now let's examine 'Bias for Action' and 'Frugality'. Can you share an example where you had to make a critical decision with incomplete data or tight resources?",
             "Excellent. What is one question you have for me about engineering culture or team velocity at Amazon?",
             "Thank you for this thorough interview. Based on your STAR structured delivery, customer focus, and ownership mindset, here is your Amazon Bar Raiser Evaluation: Recommendation: STRONG HIRE. Fluency: 94%, Leadership Principle Alignment: 92%, STAR Depth: 90%. Welcome to the Amazon talent pipeline!"
+        ]
+    },
+    "AWS": {
+        name: "Sarah Jenkins (Senior Bar Raiser & AWS Cloud Talent Partner)",
+        focus: "16 Leadership Principles, Customer Obsession, Cloud-Scale Ownership, Bias for Action",
+        rounds: [
+            "Welcome to your AWS Bar Raiser & HR Interview. I'm Sarah Jenkins. At AWS, we power millions of businesses globally and hold an exceptionally high engineering bar. To start, please introduce yourself and tell me what customer-centric cloud innovation excites you about joining AWS.",
+            "Thank you. Let's explore our Leadership Principle of 'Ownership'. Tell me about a time when you took on a problem that was outside your direct scope or responsibility. What was the situation, and what action did you take?",
+            "Good breakdown. At AWS, leaders are right a lot and seek diverse perspectives. Describe a situation where you had a strong disagreement with a team member or manager over a technical or architectural decision. How did you resolve it, and what was the outcome?",
+            "Now let's examine 'Bias for Action' and 'Frugality'. Can you share an example where you had to make a critical decision with incomplete data or tight resources?",
+            "Excellent. What is one question you have for me about cloud engineering culture or team velocity at AWS?",
+            "Thank you for this thorough interview. Based on your STAR structured delivery, customer focus, and cloud ownership mindset, here is your AWS Bar Raiser Evaluation: Recommendation: STRONG HIRE. Fluency: 94%, Leadership Principle Alignment: 93%, Cloud & STAR Depth: 91%. Welcome to the AWS talent pipeline!"
         ]
     },
     "Microsoft": {
@@ -3028,14 +3424,19 @@ initDatabase().then(() => {
         return res.json({ status: "ok" });
     });
 
-    app.listen(PORT, "0.0.0.0", () => {
-        console.log(`\n======================================================`);
-        console.log(`  🚀 Rank-Holder Server running on http://0.0.0.0:${PORT}`);
-        console.log(`  📁 Frontend root: ./frontend/`);
-        console.log(`  🗄️ Database: ${DB_PATH}`);
-        console.log(`======================================================\n`);
-    });
+    if (!process.env.VERCEL) {
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`\n======================================================`);
+            console.log(`  🚀 Rank-Holder Server running on http://0.0.0.0:${PORT}`);
+            console.log(`  📁 Frontend root: ./frontend/`);
+            console.log(`  🗄️ Database: ${DB_PATH}`);
+            console.log(`  ⚡ Supabase: ${SupabaseService.isConfigured() ? "Connected" : "Encrypted SQLite fallback"}`);
+            console.log(`======================================================\n`);
+        });
+    }
 }).catch(err => {
     console.error("❌ Failed to start server:", err);
-    process.exit(1);
+    if (!process.env.VERCEL) process.exit(1);
 });
+
+module.exports = app;

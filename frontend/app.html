@@ -3202,23 +3202,11 @@
 
                             <select id="aiHrCompany"
                                 style="padding:6px 12px; border-radius:8px; background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.4); color:#e2e8f0; font-size:0.85rem; outline:none; font-weight:600; cursor:pointer;">
-
-                                <option value="Nvidia"> Nvidia</option>
-
-                                <option value="Apple"> Apple</option>
-
-                                <option value="Meta"> Meta</option>
-
-                                <option value="Adobe"> Adobe</option>
-
-                                <option value="Spotify"> Spotify</option>
-
-                                <option value="Google"> Google</option>
-
-                                <option value="Microsoft"> Microsoft</option>
-
-                                <option value="Amazon"> Amazon</option>
-
+                                <option value="Google">Google</option>
+                                <option value="Microsoft">Microsoft</option>
+                                <option value="AWS">AWS</option>
+                                <option value="ZOHO">ZOHO</option>
+                                <option value="TATA">TATA</option>
                             </select>
 
                             <button id="aiHrVoiceToggle" onclick="toggleHrVoice()"
@@ -4460,7 +4448,7 @@
                             <div style="display:flex; flex-direction:column; gap:8px;">
                                 <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                                     <input type="text" id="aiChatInput" class="input-control"
-                                        placeholder="Ask anything... (e.g. Practice HR answers, grammar check, tech topic)"
+                                        placeholder="Search any topic or ask questions... (e.g., React, Python, Cloud Computing, STAR Method)"
                                         style="flex:1; min-width:200px;" onkeydown="if(event.key==='Enter') sendAiMessage()">
                                     <button type="button" class="btn btn-voice-reagain" id="btnVoiceReagainInput" onclick="voiceReagain()" title="Teach / Voice Previous Sentence Again"
                                         style="padding:0 14px; height:38px; font-size:0.8rem; font-weight:700; border-radius:8px; display:inline-flex; align-items:center; gap:6px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.45); color:#38bdf8; cursor:pointer; white-space:nowrap; transition:all 0.2s;">
@@ -4477,10 +4465,26 @@
                                         <span id="aiMicBtnText">Speak</span>
                                     </button>
                                     <button class="btn btn-primary" onclick="sendAiMessage()"
-                                        style="padding:0 20px; height:38px;">Send</button>
+                                        style="padding:0 20px; height:38px; display:inline-flex; align-items:center; gap:6px; font-weight:700;">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                        <span>Search / Ask</span>
+                                    </button>
+                                </div>
+
+                                <!-- Quick Topic Search Chips -->
+                                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; align-items:center;">
+                                    <span style="font-size:0.75rem; color:#94a3b8; font-weight:700; margin-right:4px;">🔍 Search Topics:</span>
+                                    <button type="button" onclick="searchOrAskTopic('What is React and how does the Virtual DOM work?')" style="font-size:0.75rem; background:rgba(99,102,241,0.14); border:1px solid rgba(99,102,241,0.35); color:#a5b4fc; border-radius:12px; padding:3px 10px; cursor:pointer;">⚛️ React & VDOM</button>
+                                    <button type="button" onclick="searchOrAskTopic('Explain Python GIL and asynchronous backend programming')" style="font-size:0.75rem; background:rgba(234,179,8,0.14); border:1px solid rgba(234,179,8,0.35); color:#fde047; border-radius:12px; padding:3px 10px; cursor:pointer;">🐍 Python Backend</button>
+                                    <button type="button" onclick="searchOrAskTopic('Explain AWS Cloud Architecture and Microservices design')" style="font-size:0.75rem; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.35); color:#fbbf24; border-radius:12px; padding:3px 10px; cursor:pointer;">☁️ AWS Architecture</button>
+                                    <button type="button" onclick="searchOrAskTopic('How to answer behavioral interview questions using STAR framework?')" style="font-size:0.75rem; background:rgba(16,185,129,0.14); border:1px solid rgba(16,185,129,0.35); color:#6ee7b7; border-radius:12px; padding:3px 10px; cursor:pointer;">🎯 STAR Interview Method</button>
+                                    <button type="button" onclick="searchOrAskTopic('Explain Machine Learning algorithms and Neural Networks')" style="font-size:0.75rem; background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc; border-radius:12px; padding:3px 10px; cursor:pointer;">🤖 ML & Neural Networks</button>
+                                    <button type="button" onclick="searchOrAskTopic('I am completed my engineering and I am having interest in cloud engineering')" style="font-size:0.75rem; background:rgba(244,63,94,0.14); border:1px solid rgba(244,63,94,0.35); color:#fda4af; border-radius:12px; padding:3px 10px; cursor:pointer;">✍️ Test Grammar Check</button>
                                 </div>
                             </div>
-
+                        </div> <!-- end right column -->
+                    </div> <!-- end grid layout -->
+                </div> <!-- end card -->
             </section>
 
 

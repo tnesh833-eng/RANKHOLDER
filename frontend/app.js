@@ -836,119 +836,6 @@ function initThreeJsAvatar() {
     const collarMat = new THREE.MeshPhongMaterial({ color: 0xf1f5f9, shininess: 60 });
     const wireMat = new THREE.MeshPhongMaterial({ color: 0x38bdf8, emissive: 0x0ea5e9, wireframe: true, transparent: true, opacity: 0.25 });
 
-    // ---- MAIN SEND FUNCTION (Multi-Engine Router) ----
-    async function sendAiMessage() {
-        const input = document.getElementById('aiChatInput');
-        const msg = input.value.trim();
-        if (!msg) return;
-
-        const selectedEngine = document.getElementById('aiModeSelect') ? document.getElementById('aiModeSelect').value : 'gemini';
-        const persona = document.getElementById('aiCommModeSelect') ? document.getElementById('aiCommModeSelect').value : 'friendly';
-        const systemPrompt = getSystemPrompt(persona);
-
-        appendAiMessage('user', msg);
-        input.value = '';
-
-        const typingId = 'typing-' + Date.now();
-        appendAiTyping(typingId);
-
-        try {
-            let reply = '';
-            let researchMeta = null;
-
-            if (selectedEngine === 'openai') {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.openai },
-                    body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-                });
-                const data = await res.json();
-                reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from OpenAI.';
-
-            } else if (selectedEngine === 'claude') {
-                const res = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': API_KEYS.claude,
-                        'anthropic-version': '2023-06-01',
-                        'anthropic-dangerous-direct-browser-access': 'true'
-                    },
-                    body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 1024, system: systemPrompt, messages: [{ role: 'user', content: msg }] })
-                });
-                const data = await res.json();
-                reply = data.content && data.content[0] ? data.content[0].text : 'No response from Claude.';
-
-            } else if (selectedEngine === 'zai') {
-                const res = await fetch('https://api.z.ai/api/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.zai },
-                    body: JSON.stringify({ model: 'z1-32b', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-                });
-                const data = await res.json();
-                reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Z.ai.';
-
-            } else if (selectedEngine === 'grok') {
-                const res = await fetch('https://api.x.ai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.grok },
-                    body: JSON.stringify({ model: 'grok-beta', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-                });
-                const data = await res.json();
-                reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Grok.';
-
-            } else if (selectedEngine === 'perplexity') {
-                const res = await fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.perplexity },
-                    body: JSON.stringify({ model: 'llama-3.1-sonar-large-128k-online', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-                });
-                const data = await res.json();
-                reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Perplexity.';
-
-            } else {
-                const authToken = localStorage.getItem('rh_auth_token') || '';
-                const backendRes = await fetch(apiUrl('/ai/global-chat'), {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + authToken
-                    },
-                    body: JSON.stringify({ message: systemPrompt + '\n\nUser: ' + msg })
-                });
-                const backendData = await backendRes.json();
-                reply = backendData.reply || 'Sorry, I could not generate a response. Please try again.';
-                researchMeta = backendData.sources || null;
-            }
-
-            if (researchMeta && (researchMeta.google || researchMeta.youtube)) {
-                const googleLink = researchMeta.google || `https://www.google.com/search?q=${encodeURIComponent(msg)}`;
-                const youtubeLink = researchMeta.youtube || `https://www.youtube.com/results?search_query=${encodeURIComponent(msg)}`;
-                reply += '\n\n' +
-                    '<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">' +
-                    '<a href="' + googleLink + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:rgba(59,130,246,0.12);border:1px solid rgba(96,165,250,0.35);color:#bfdbfe;text-decoration:none;font-size:0.75rem;font-weight:700;">Google</a>' +
-                    '<a href="' + youtubeLink + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:rgba(239,68,68,0.12);border:1px solid rgba(251,113,133,0.35);color:#fecdd3;text-decoration:none;font-size:0.75rem;font-weight:700;">YouTube</a>' +
-                    '</div>';
-            }
-
-            reply = reply
-                .replace(/<\/?(b|i|u|br|p|em|strong|span|div)[^>]*>/gi, (m) => /^<br/i.test(m) ? '\n' : '')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/\n/g, '<br>');
-
-            removeAiTyping(typingId);
-            appendAiMessage('ai', reply);
-
-        } catch (err) {
-            removeAiTyping(typingId);
-            appendAiMessage('ai', '⚠️ Could not reach the AI engine: ' + err.message);
-        }
-
-        aiTurnCount++;
-        const statEl = document.getElementById('statTurns');
-        if (statEl) statEl.innerText = aiTurnCount;
-    }
     ariaJaw.position.set(0, -0.18, 0);
     ariaHead.add(ariaJaw);
 
@@ -1258,8 +1145,16 @@ function closeQuickAccess() {
 function openQASearch() {
     const input = document.getElementById("qaSearchInput");
     if (input && input.value.trim()) {
-        const query = encodeURIComponent(input.value.trim());
-        window.open(`https://www.google.com/search?q=${query}`, "_blank");
+        const query = input.value.trim();
+        closeQuickAccess();
+        switchTab('english');
+        setTimeout(() => {
+            const chatInput = document.getElementById('aiChatInput');
+            if (chatInput) {
+                chatInput.value = query;
+                if (typeof sendAiMessage === 'function') sendAiMessage();
+            }
+        }, 150);
     }
 }
 
@@ -8724,8 +8619,6 @@ window.generateProjectHub = async function () {
 // AI ASSISTANT PARTNER (ENGLISH TAB) LOGIC
 // ==========================================
 
-let aiTurnCount = 0;
-
 // ---- API KEYS ----
 
 // ---- PERSONA SYSTEM PROMPT ----
@@ -8738,15 +8631,35 @@ function getSystemPrompt(persona) {
     return 'You are a friendly, warm, and helpful AI assistant. Respond conversationally, be enthusiastic and supportive.';
 }
 
-// ---- MAIN SEND FUNCTION (Multi-Engine Router) ----
+// Quick Prompt Helper
+window.setQuickPrompt = function(text) {
+    const input = document.getElementById('aiChatInput');
+    if (input) {
+        input.value = text;
+        input.focus();
+    }
+};
+
+window.searchOrAskTopic = function(text) {
+    const input = document.getElementById('aiChatInput');
+    if (input) {
+        input.value = text;
+        sendAiMessage();
+    }
+};
+
+let aiTurnCount = 0;
+let aiFixesCount = 0;
+let aiTotalFluency = 0;
+
+// ---- MAIN SEND FUNCTION (English Communication Intelligence Router) ----
 async function sendAiMessage() {
     const input = document.getElementById('aiChatInput');
+    if (!input) return;
     const msg = input.value.trim();
     if (!msg) return;
 
-    const selectedEngine = document.getElementById('aiModeSelect') ? document.getElementById('aiModeSelect').value : 'gemini';
     const persona = document.getElementById('aiCommModeSelect') ? document.getElementById('aiCommModeSelect').value : 'friendly';
-    const systemPrompt = getSystemPrompt(persona);
 
     appendAiMessage('user', msg);
     input.value = '';
@@ -8755,125 +8668,212 @@ async function sendAiMessage() {
     appendAiTyping(typingId);
 
     try {
-        let reply = '';
-        let engineLabel = '';
-        let researchMeta = null;
+        const authToken = localStorage.getItem('rh_auth_token') || localStorage.getItem('token') || '';
+        const res = await fetch(apiUrl('/ai/chat'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {})
+            },
+            body: JSON.stringify({
+                message: msg,
+                mode: persona,
+                topic: 'Professional English & Corporate Communication'
+            })
+        });
 
-        if (selectedEngine === 'openai') {
-            engineLabel = 'OpenAI GPT-4o';
-            const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.openai },
-                body: JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-            });
-            const data = await res.json();
-            reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from OpenAI.';
+        const data = await res.json();
+        removeAiTyping(typingId);
 
-        } else if (selectedEngine === 'claude') {
-            engineLabel = 'Claude Sonnet';
-            const res = await fetch('https://api.anthropic.com/v1/messages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': API_KEYS.claude,
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-dangerous-direct-browser-access': 'true'
-                },
-                body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 1024, system: systemPrompt, messages: [{ role: 'user', content: msg }] })
-            });
-            const data = await res.json();
-            reply = data.content && data.content[0] ? data.content[0].text : 'No response from Claude.';
-
-        } else if (selectedEngine === 'zai') {
-            engineLabel = 'Z.ai';
-            const res = await fetch('https://api.z.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.zai },
-                body: JSON.stringify({ model: 'z1-32b', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-            });
-            const data = await res.json();
-            reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Z.ai.';
-
-        } else if (selectedEngine === 'grok') {
-            engineLabel = 'Grok (xAI)';
-            const res = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.grok },
-                body: JSON.stringify({ model: 'grok-beta', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-            });
-            const data = await res.json();
-            reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Grok.';
-
-        } else if (selectedEngine === 'perplexity') {
-            engineLabel = 'Perplexity AI';
-            const res = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEYS.perplexity },
-                body: JSON.stringify({ model: 'llama-3.1-sonar-large-128k-online', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: msg }] })
-            });
-            const data = await res.json();
-            reply = data.choices && data.choices[0] ? data.choices[0].message.content : 'No response from Perplexity.';
-
-        } else {
-            // Default: Route through our secure backend (Gemini via server-side key) with 8s fast timeout
-            engineLabel = 'Gemini AI';
-            const authToken = localStorage.getItem('rh_auth_token') || '';
-            let backendData = null;
-            try {
-                const abortCtrl = new AbortController();
-                const timeoutTimer = setTimeout(() => abortCtrl.abort(), 7000);
-                const backendRes = await fetch(apiUrl('/ai/global-chat'), {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + authToken
-                    },
-                    body: JSON.stringify({ message: systemPrompt + '\n\nUser: ' + msg }),
-                    signal: abortCtrl.signal
-                });
-                clearTimeout(timeoutTimer);
-                if (backendRes.ok) {
-                    backendData = await backendRes.json();
-                }
-            } catch (fetchErr) {
-                console.warn("Backend AI call timed out or failed, using instant smart coach:", fetchErr.message);
-            }
-
-            if (backendData && backendData.reply) {
-                reply = backendData.reply;
-            } else {
-                // High-quality contextual response for freshers / English / interview prep
-                reply = generateContextualCoachingResponse(msg, persona);
-            }
-            if (backendData.sources) {
-                const googleLink = backendData.sources.google || `https://www.google.com/search?q=${encodeURIComponent(msg)}`;
-                const youtubeLink = backendData.sources.youtube || `https://www.youtube.com/results?search_query=${encodeURIComponent(msg)}`;
-                reply += '\n\n' +
-                    '<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">' +
-                    '<a href="' + googleLink + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:rgba(59,130,246,0.12);border:1px solid rgba(96,165,250,0.35);color:#bfdbfe;text-decoration:none;font-size:0.75rem;font-weight:700;">Google</a>' +
-                    '<a href="' + youtubeLink + '" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:rgba(239,68,68,0.12);border:1px solid rgba(251,113,133,0.35);color:#fecdd3;text-decoration:none;font-size:0.75rem;font-weight:700;">YouTube</a>' +
-                    '</div>';
-            }
+        if (!res.ok && data.error) {
+            appendAiMessage('ai', `<div style="color:#f87171;">⚠️ ${data.error}</div>`, data.error);
+            return;
         }
 
-        // Clean and format the reply — strip any raw HTML tags, render markdown
-        reply = reply
-            .replace(/<\/?(b|i|u|br|p|em|strong|span|div)[^>]*>/gi, (m) => /^<br/i.test(m) ? '\n' : '')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        const replyText = data.reply || "Thank you for sharing. Let's continue practicing your spoken English.";
+        const polishedText = data.polished || msg;
+        const corrections = Array.isArray(data.corrections) ? data.corrections : [];
+        const vocabulary = Array.isArray(data.vocabulary) ? data.vocabulary : [];
+        const scores = data.scores || { fluency: 90, grammar: 92, tone: 90 };
+        const tip = data.tip || "Use active verbs and maintain steady, deliberate pacing for maximum executive impact.";
+
+        // Update session metrics
+        aiTurnCount++;
+        aiFixesCount += corrections.length;
+        aiTotalFluency += scores.fluency;
+        const avgFluency = Math.round(aiTotalFluency / aiTurnCount);
+
+        const statTurnsEl = document.getElementById('statTurns');
+        const statFixesEl = document.getElementById('statFixes');
+        const statFluencyEl = document.getElementById('statFluency');
+        if (statTurnsEl) statTurnsEl.innerText = aiTurnCount;
+        if (statFixesEl) statFixesEl.innerText = aiFixesCount;
+        if (statFluencyEl) statFluencyEl.innerText = avgFluency + '%';
+
+        // Format reply text with rich markdown
+        const formattedReply = replyText
+            .replace(/^### (.*$)/gim, '<h3 style="color:#f8fafc; font-size:1.02rem; font-weight:800; margin:10px 0 6px 0; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:4px;">$1</h3>')
+            .replace(/^#### (.*$)/gim, '<h4 style="color:#38bdf8; font-size:0.92rem; font-weight:700; margin:8px 0 4px 0;">$1</h4>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#f1f5f9;">$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/^- (.*$)/gim, '<div style="margin-left:14px; display:flex; align-items:flex-start; gap:6px; font-size:0.86rem; line-height:1.45; margin-bottom:4px;"><span style="color:#38bdf8;">•</span><span>$1</span></div>')
+            .replace(/\n\n/g, '<div style="height:6px;"></div>')
             .replace(/\n/g, '<br>');
 
-        removeAiTyping(typingId);
-        appendAiMessage('ai', reply);
+        // Wikipedia Content HTML
+        let wikiHtml = '';
+        if (data.wikipedia && data.wikipedia.title) {
+            wikiHtml = `
+            <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(56,189,248,0.25); border-left:4px solid #38bdf8; border-radius:10px; padding:12px 14px; margin-top:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1rem;">📖</span>
+                        <span style="font-size:0.75rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.04em;">Wikipedia Knowledge Base</span>
+                        <span style="font-size:0.8rem; font-weight:700; color:#f8fafc;">— ${data.wikipedia.title}</span>
+                    </div>
+                    <a href="${data.wikipedia.url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:6px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc; text-decoration:none; font-size:0.72rem; font-weight:700;">
+                        <span>Open Article</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    </a>
+                </div>
+                <div style="font-size:0.82rem; color:#cbd5e1; line-height:1.5;">
+                    ${data.wikipedia.extract}
+                </div>
+            </div>`;
+        }
+
+        // YouTube Masterclasses HTML
+        let youtubeHtml = '';
+        if (data.youtube && Array.isArray(data.youtube) && data.youtube.length > 0) {
+            youtubeHtml = `
+            <div style="background:rgba(239,68,68,0.05); border:1px solid rgba(239,68,68,0.25); border-left:4px solid #ef4444; border-radius:10px; padding:12px 14px; margin-top:10px;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                    <span style="font-size:1.1rem; color:#ef4444;">▶️</span>
+                    <span style="font-size:0.75rem; font-weight:800; color:#f87171; text-transform:uppercase; letter-spacing:0.04em;">Related YouTube Tutorials & Masterclasses</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    ${data.youtube.map(yt => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; background:rgba(0,0,0,0.3); border-radius:8px; border:1px solid rgba(255,255,255,0.06); flex-wrap:wrap;">
+                            <div style="flex:1; min-width:200px;">
+                                <div style="font-size:0.82rem; font-weight:700; color:#f1f5f9;">${yt.title}</div>
+                                <div style="font-size:0.73rem; color:#94a3b8; margin-top:1px;">${yt.desc}</div>
+                            </div>
+                            <a href="${yt.url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:6px; background:rgba(239,68,68,0.18); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; text-decoration:none; font-size:0.72rem; font-weight:700; white-space:nowrap;">
+                                <span>Watch on YouTube</span>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            </a>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }
+
+        // Corrections HTML
+        let correctionsHtml = '';
+        if (corrections.length > 0) {
+            correctionsHtml = `
+            <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; padding:10px 12px; margin-top:8px;">
+                <div style="font-size:0.75rem; font-weight:700; color:#f87171; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                    <span>✍️ Grammar & Expression Refinement (${corrections.length})</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    ${corrections.map(c => `
+                        <div style="font-size:0.82rem; line-height:1.4;">
+                            <span style="color:#fca5a5; text-decoration:line-through; font-family:monospace;">${c.original || ''}</span>
+                            <span style="color:#94a3b8; margin:0 4px;">➔</span>
+                            <strong style="color:#34d399; font-family:monospace;">${c.suggestion || ''}</strong>
+                            <div style="font-size:0.74rem; color:#cbd5e1; margin-top:2px;">${c.reason || ''}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        } else {
+            correctionsHtml = `
+            <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:10px; padding:7px 12px; margin-top:8px; display:flex; align-items:center; gap:8px;">
+                <span style="color:#34d399; font-size:0.9rem;">✓</span>
+                <span style="font-size:0.8rem; color:#6ee7b7; font-weight:600;">Flawless Grammar & Syntax — Clear, precise sentence structure.</span>
+            </div>`;
+        }
+
+        // Polished phrasing HTML
+        let polishedHtml = '';
+        if (polishedText && polishedText.toLowerCase().trim() !== msg.toLowerCase().trim()) {
+            const escapedPolished = polishedText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            polishedHtml = `
+            <div style="background:linear-gradient(135deg, rgba(99,102,241,0.1), rgba(56,189,248,0.1)); border:1px solid rgba(99,102,241,0.3); border-radius:10px; padding:10px 12px; margin-top:8px;">
+                <div style="font-size:0.74rem; font-weight:700; color:#a5b4fc; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>💼 Executive & Corporate Phrasing</span>
+                    <button type="button" onclick="navigator.clipboard.writeText('${escapedPolished}')" style="background:rgba(255,255,255,0.08); border:none; color:#cbd5e1; padding:2px 8px; border-radius:6px; font-size:0.7rem; cursor:pointer;">Copy</button>
+                </div>
+                <div style="font-size:0.86rem; color:#f1f5f9; font-style:italic; line-height:1.45;">
+                    "${polishedText}"
+                </div>
+            </div>`;
+        }
+
+        // Vocabulary HTML
+        let vocabHtml = '';
+        if (vocabulary.length > 0) {
+            vocabHtml = `
+            <div style="margin-top:8px;">
+                <div style="font-size:0.72rem; font-weight:700; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">
+                    🚀 High-Impact Corporate Vocabulary
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    ${vocabulary.map(v => `
+                        <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:6px 10px; font-size:0.78rem;">
+                            <strong style="color:#38bdf8;">${v.word}</strong>: <span style="color:#cbd5e1;">${v.meaning}</span>
+                            ${v.example ? `<div style="font-size:0.72rem; color:#94a3b8; font-style:italic; margin-top:2px;">"${v.example}"</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        }
+
+        // Combined Card Output HTML
+        const cardHtml = `
+        <div style="display:flex; flex-direction:column; gap:6px;">
+            <!-- Complete In-Depth Answer -->
+            <div style="font-size:0.9rem; line-height:1.6; color:#f8fafc;">
+                ${formattedReply}
+            </div>
+
+            <!-- Wikipedia Knowledge Base -->
+            ${wikiHtml}
+
+            <!-- Related YouTube Tutorials -->
+            ${youtubeHtml}
+
+            <!-- Fluency & Scoring HUD -->
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; padding:6px 10px; background:rgba(0,0,0,0.25); border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+                <span style="font-size:0.74rem; font-weight:700; color:#38bdf8;">🎯 Fluency: <strong>${scores.fluency}%</strong></span>
+                <span style="font-size:0.74rem; font-weight:700; color:#34d399;">✍️ Grammar: <strong>${scores.grammar}%</strong></span>
+                <span style="font-size:0.74rem; font-weight:700; color:#fbbf24;">👔 Executive Tone: <strong>${scores.tone}%</strong></span>
+            </div>
+
+            ${polishedHtml}
+            ${correctionsHtml}
+            ${vocabHtml}
+
+            <!-- Tip -->
+            <div style="margin-top:6px; font-size:0.75rem; color:#94a3b8; display:flex; align-items:center; gap:6px;">
+                <span>💡 <em>Coach Tip: ${tip}</em></span>
+            </div>
+        </div>`;
+
+        const spokenSummary = replyText
+            .replace(/###|####|\*\*|__|\*|_/g, '')
+            .split('\n')
+            .filter(line => line.trim().length > 0 && !line.startsWith('-'))
+            .slice(0, 2)
+            .join(' ');
+
+        appendAiMessage('ai', cardHtml, spokenSummary);
 
     } catch (err) {
         removeAiTyping(typingId);
-        appendAiMessage('ai', '⚠️ Could not reach the AI engine: ' + err.message);
+        appendAiMessage('ai', '<div style="color:#f87171;">⚠️ Communication assistant connection error: ' + err.message + '</div>', 'Connection error occurred. Please try again.');
     }
-
-    aiTurnCount++;
-    const statEl = document.getElementById('statTurns');
-    if (statEl) statEl.innerText = aiTurnCount;
 }
 
 // ---- TOOL TRIGGER (Google Search via SerpApi + Wikipedia API) ----
@@ -8978,8 +8978,9 @@ async function triggerAiTool(toolName) {
     if (statEl) statEl.innerText = aiTurnCount;
 }
 
-function appendAiMessage(sender, text) {
+function appendAiMessage(sender, text, spokenText) {
     const container = document.getElementById('aiChatContainer');
+    if (!container) return;
     const msgDiv = document.createElement('div');
     msgDiv.className = 'chat-message';
     msgDiv.style.display = 'flex';
@@ -8991,11 +8992,11 @@ function appendAiMessage(sender, text) {
         msgDiv.style.flexDirection = 'row-reverse';
 
         const avatar = document.createElement('div');
-        avatar.style = 'width:32px; height:32px; border-radius:50%; background:var(--text-secondary); display:flex; align-items:center; justify-content:center; color:white; flex-shrink:0; font-size:0.8rem;';
+        avatar.style = 'width:32px; height:32px; border-radius:50%; background:var(--text-secondary); display:flex; align-items:center; justify-content:center; color:white; flex-shrink:0; font-size:0.8rem; font-weight:700;';
         avatar.innerText = 'Me';
 
         const bubble = document.createElement('div');
-        bubble.style = 'background:#3b82f6; color:white; padding:10px 14px; border-radius:12px 0 12px 12px; font-size:0.9rem; line-height:1.5; max-width:80%;';
+        bubble.style = 'background:#3b82f6; color:white; padding:10px 14px; border-radius:12px 0 12px 12px; font-size:0.9rem; line-height:1.5; max-width:85%; word-break:break-word;';
         bubble.innerText = text;
 
         msgDiv.appendChild(avatar);
@@ -9004,29 +9005,29 @@ function appendAiMessage(sender, text) {
         msgDiv.style.alignItems = 'flex-start';
 
         const avatar = document.createElement('div');
-        avatar.style = 'width:32px; height:32px; border-radius:50%; background:var(--brand-primary); display:flex; align-items:center; justify-content:center; color:white; flex-shrink:0; font-weight:bold; font-size:0.8rem;';
+        avatar.style = 'width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, #6366f1, #38bdf8); display:flex; align-items:center; justify-content:center; color:white; flex-shrink:0; font-weight:bold; font-size:0.75rem; border:1px solid rgba(255,255,255,0.2);';
         avatar.innerText = 'AI';
 
         const bubble = document.createElement('div');
-        bubble.style = 'background:var(--bg-card); padding:10px 14px; border-radius:0 12px 12px 12px; border:1px solid var(--border-subtle); font-size:0.9rem; line-height:1.5; max-width:80%;';
+        bubble.style = 'background:var(--bg-card, #111827); padding:12px 16px; border-radius:0 14px 14px 14px; border:1px solid rgba(255,255,255,0.1); font-size:0.9rem; line-height:1.5; max-width:92%; width:100%; word-break:break-word; box-shadow:0 4px 12px rgba(0,0,0,0.25);';
         bubble.innerHTML = text;
 
         msgDiv.appendChild(avatar);
         msgDiv.appendChild(bubble);
 
-        // --- Web Speech API (AI Voice) ---
-        // Strip HTML tags for clean speech
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = text;
-        let plainText = tempDiv.textContent || tempDiv.innerText || '';
-        // Remove the bracketed prefix from speech so it sounds natural
-        plainText = plainText.replace(/\[.*?\]/, '').trim();
+        // --- Web Speech API (Spoken AI Voice) ---
+        let speechToPlay = spokenText;
+        if (!speechToPlay) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = text;
+            speechToPlay = (tempDiv.textContent || tempDiv.innerText || '').replace(/\[.*?\]/, '').trim();
+        }
 
         if (typeof window.speakEnglishText === 'function') {
-            window.speakEnglishText(plainText);
+            window.speakEnglishText(speechToPlay);
         } else if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(plainText);
+            const utterance = new SpeechSynthesisUtterance(speechToPlay);
             utterance.rate = 1.0;
             utterance.pitch = 1.1;
             window.speechSynthesis.speak(utterance);
