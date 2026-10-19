@@ -587,12 +587,18 @@
             try {
                 let res;
                 if (currentAuthRole === 'admin') {
-                    const admRes = await fetch('/api/admin/otp-request', {
+                    const apiBase = window.__RANKHOLDER_API_BASE__ || '/api';
+                    const admRes = await fetch(apiBase + '/admin/otp-request', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email: currentEmail })
                     });
-                    res = await admRes.json();
+                    const ct = admRes.headers.get('content-type') || '';
+                    if (ct.includes('application/json')) {
+                        res = await admRes.json();
+                    } else {
+                        throw new Error('Server returned an unexpected format. Please retry.');
+                    }
                 } else {
                     res = await Backend.Auth.resendOTP(currentEmail, 'login');
                 }
@@ -661,12 +667,18 @@
             try {
                 let res;
                 if (currentAuthRole === 'admin') {
-                    const adminRes = await fetch('/api/admin/otp-request', {
+                    const apiBase = window.__RANKHOLDER_API_BASE__ || '/api';
+                    const adminRes = await fetch(apiBase + '/admin/otp-request', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email: email })
                     });
-                    res = await adminRes.json();
+                    const ct = adminRes.headers.get('content-type') || '';
+                    if (ct.includes('application/json')) {
+                        res = await adminRes.json();
+                    } else {
+                        throw new Error('Server returned an unexpected format. Please retry.');
+                    }
                 } else {
                     res = await Backend.Auth.requestLoginOTP(email, name, photo);
                 }
@@ -713,12 +725,18 @@
             try {
                 let res;
                 if (currentAuthRole === 'admin') {
-                    const admRes = await fetch('/api/admin/login', {
+                    const apiBase = window.__RANKHOLDER_API_BASE__ || '/api';
+                    const admRes = await fetch(apiBase + '/admin/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ email: currentEmail, otp: otp })
                     });
-                    res = await admRes.json();
+                    const ct = admRes.headers.get('content-type') || '';
+                    if (ct.includes('application/json')) {
+                        res = await admRes.json();
+                    } else {
+                        throw new Error('Server returned an unexpected format. Please retry.');
+                    }
                     if (res && res.success && res.token) {
                         localStorage.setItem('rh_auth_token', res.token);
                         localStorage.setItem('rh_user', JSON.stringify(res.user));
