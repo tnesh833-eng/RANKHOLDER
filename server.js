@@ -898,6 +898,28 @@ async function sendSystemEmail(toEmail, subject, text, html = "") {
     return true;
 }
 
+/* ─── Test Email Route (admin only, verifies email delivery) ─── */
+app.post("/api/test-email", async (req, res) => {
+    const { email, secret } = req.body || {};
+    // Simple secret guard so only admin can trigger
+    const adminSecret = process.env.ADMIN_PASSWORD || "RankHolderAdmin@2026";
+    if (secret !== adminSecret) {
+        return res.status(403).json({ error: "Forbidden: wrong secret" });
+    }
+    const toEmail = email || ADMIN_EMAIL;
+    const testOtp = generateOTP();
+    const sent = await sendOTPEmail(toEmail, testOtp, "test-delivery");
+    if (sent) {
+        return res.json({
+            success: true,
+            message: `Test OTP email sent to ${toEmail}`,
+            otp_code: testOtp,
+            provider: RESEND_API_KEY ? "Resend HTTPS" : SMTP_PASSWORD ? "Gmail SMTP" : "Console (no provider)"
+        });
+    }
+    return res.status(500).json({ error: "Email send failed — check Render logs" });
+});
+
 /* ═══════════════════════════════════════════════════════════════
    AUTH ROUTES
 ═══════════════════════════════════════════════════════════════ */
