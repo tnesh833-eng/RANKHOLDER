@@ -3,7 +3,7 @@
  * Connects Frontend to Python Flask SQLite Backend at http://127.0.0.1:5000/api
  */
 
-const API_BASE_URL = (window.location.protocol === "file:" || ((window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000")) ? "http://127.0.0.1:3000/api" : "/api";
+const API_BASE_URL = window.__RANKHOLDER_API_BASE__ || '/api';
 
 const Backend = {
     // Get stored session token

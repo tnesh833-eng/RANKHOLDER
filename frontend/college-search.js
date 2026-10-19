@@ -69,7 +69,7 @@ async function searchCollege() {
     try {
         let d = null;
         try {
-            const apiBase = (window.location.protocol === "file:" || ((window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000")) ? "http://127.0.0.1:3000/api" : "/api";
+            const apiBase = window.__RANKHOLDER_API_BASE__ || '/api';
             const res = await fetch(`${apiBase}/college-info?collegeName=${encodeURIComponent(query)}`);
             const ct = res.headers.get('content-type') || '';
             if (res.ok && !ct.includes('text/html')) {

@@ -83,8 +83,24 @@ const authLimiter = rateLimit({
 });
 
 /* ─── Middleware ───────────────────────────────────────────────── */
+const ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",").map(o => o.trim()) : []),
+];
 app.use(cors({
-    origin: true,
+    origin: function (origin, callback) {
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
+        if (!origin) return callback(null, true);
+        // Allow any Vercel deployment (*.vercel.app) or configured domains
+        if (
+            origin.endsWith(".vercel.app") ||
+            ALLOWED_ORIGINS.includes(origin)
+        ) {
+            return callback(null, true);
+        }
+        callback(new Error("Not allowed by CORS: " + origin));
+    },
     credentials: true,
 }));
 app.use(cookieParser());

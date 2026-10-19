@@ -1,4 +1,4 @@
-const _API = (window.location.protocol === "file:" || ((window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000")) ? "http://127.0.0.1:3000/api" : "/api";
+const _API = window.__RANKHOLDER_API_BASE__ || '/api';
 function _getToken(){return localStorage.getItem("rh_auth_token")||"";}
 window.toggleTheme=function(){document.body.classList.toggle("light-theme");var icon=document.getElementById("themeIcon")||document.getElementById("tIcon");var label=document.getElementById("themeLabel")||document.getElementById("tLabel");var isLight=document.body.classList.contains("light-theme");if(icon)icon.innerHTML=isLight?"&#127776;":"&#9728;";if(label)label.textContent=isLight?"Dark":"Light";localStorage.setItem("rh_theme",isLight?"light":"dark");};
 window.toggleNotifPanel=function(){var np=document.getElementById("notifPanel");var pp=document.getElementById("profilePanel");var sp=document.getElementById("settingsPanel");if(!np)return;if(pp)pp.style.display="none";if(sp)sp.style.display="none";var open=np.style.display==="none"||np.style.display==="";np.style.display=open?"block":"none";if(open)_loadNotifs();};

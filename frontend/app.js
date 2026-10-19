@@ -355,11 +355,7 @@ const API_KEYS = {
     zai: ''
 };
 
-const API_BASE = (window.location.protocol === 'file:' ||
-    ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
-        window.location.port !== '3000'))
-    ? 'http://127.0.0.1:3000/api'
-    : '/api';
+const API_BASE = window.__RANKHOLDER_API_BASE__ || '/api';
 
 const apiUrl = (path) => `${API_BASE}${path}`;
 
@@ -8263,7 +8259,7 @@ window.sendGlobalAiMessage = async function () {
 
         const endpoint = isPPT ? '/api/ai/generate-ppt' : '/api/ai/global-chat';
 
-        const response = await fetch('http://localhost:3000' + endpoint, {
+        const response = await fetch((window.__RANKHOLDER_API_BASE__ || '/api').replace(/\/api$/, '') + endpoint, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({ message: userText })
@@ -8328,7 +8324,7 @@ window.sendGlobalAiMessage = async function () {
    ========================================================= */
 async function checkAppVersion() {
     try {
-        const apiBase = (window.location.protocol === "file:" || ((window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000")) ? "http://127.0.0.1:3000/api" : "/api";
+        const apiBase = window.__RANKHOLDER_API_BASE__ || '/api';
         const res = await fetch(`${apiBase}/app-version`);
         if (!res.ok) return;
         const data = await res.json();
