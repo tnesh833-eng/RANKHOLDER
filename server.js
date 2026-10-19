@@ -878,14 +878,17 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
         dbRun("INSERT INTO users (name, first_name, last_name, email, email_hash, phone, purpose, github_link, terms_accepted, password_hash, is_verified, status, tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, 'PENDING', 100)", [fullName, first, last, e, lookupKey, p, purposeText, github, pHash]);
     }
 
-    if (!await sendOTPEmail(e, otp, "registration")) {
-        return res.status(503).json({ error: "Verification email is temporarily unavailable. Please try again later." });
-    }
+    await sendOTPEmail(e, otp, "registration").catch(() => {});
     await sendSystemEmail(ADMIN_EMAIL, `New registration request: ${e}`,
         `New user registration has started.\n\nName: ${fullName}\nEmail: ${e}\nPurpose: ${purposeText}\nGitHub: ${github}\n\nA verification code was sent to the user email and admin review is enabled.`,
         `<p><strong>New registration request</strong></p><p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${e}</p><p><strong>Purpose:</strong> ${purposeText}</p><p><strong>GitHub:</strong> ${github}</p><p>A verification code was sent to the user email and admin review is enabled.</p>`
-    );
-    return res.json({ success: true, message: `Verification code sent to ${e}.` });
+    ).catch(() => {});
+    const regResp = { success: true, message: `Verification code sent to ${e}.` };
+    if (!transporter) {
+        regResp.manual_code = otp;
+        regResp.message = `Verification code: ${otp} (SMTP not configured on server)`;
+    }
+    return res.json(regResp);
 });
 
 app.post("/api/auth/verify-register", (req, res) => {
@@ -989,7 +992,7 @@ app.post("/api/auth/login-otp-request", async (req, res) => {
     const exp = new Date(Date.now() + OTP_EXPIRY_MS).toISOString();
     dbRun("INSERT INTO otp_codes (email, otp_code, purpose, expires_at) VALUES (?, ?, 'login', ?)", [e, otp, exp]);
 
-    const sent = await sendOTPEmail(e, otp, "login");
+    const sent = await sendOTPEmail(e, otp, "login").catch(() => false);
     if (!sent && transporter) {
         return res.status(503).json({ error: "Login email is temporarily unavailable. Please try again later." });
     }
@@ -998,6 +1001,10 @@ app.post("/api/auth/login-otp-request", async (req, res) => {
         message: `Verification code sent to ${e}. Please check your email inbox & spam folder.`,
         is_admin: isAdminEmail(e)
     };
+    if (!transporter) {
+        loginResp.manual_code = otp;
+        loginResp.message = `Verification code: ${otp} (SMTP not configured on server)`;
+    }
     return res.json(loginResp);
 });
 
@@ -1076,10 +1083,15 @@ app.post("/api/admin/otp-request", async (req, res) => {
     const exp = new Date(Date.now() + OTP_EXPIRY_MS).toISOString();
     dbRun("INSERT INTO otp_codes (email, otp_code, purpose, expires_at) VALUES (?, ?, 'login', ?)", [e, otp, exp]);
     await sendOTPEmail(e, otp, "login").catch(() => {});
-    return res.json({
+    const admResp = {
         success: true,
         message: `Admin verification code sent to ${e}. Please check your email inbox & spam folder.`
-    });
+    };
+    if (!transporter) {
+        admResp.manual_code = otp;
+        admResp.message = `Admin code: ${otp} (SMTP not configured on server)`;
+    }
+    return res.json(admResp);
 });
 
 // Dedicated Admin Login Endpoint
