@@ -4,26 +4,27 @@
  * This file is the single source of truth for the backend API URL.
  *
  * HOW IT WORKS:
- *  - If RANKHOLDER_API_URL is set (injected via window global by Vercel env), use it.
- *  - If running from file:// or localhost (dev mode), use http://127.0.0.1:3000/api.
- *  - Otherwise (same-origin production), use /api.
- *
- * VERCEL SETUP:
- *  In your Vercel project settings → Environment Variables, set:
- *    NEXT_PUBLIC_API_URL = https://your-render-app.onrender.com/api
- *  Then in vercel.json headers or via a _api_url.js script injection, expose it.
- *  OR: just update the RENDER_API_URL constant below with your Render backend URL.
+ *  - If RANKHOLDER_BACKEND_URL is set in window, use it.
+ *  - If RENDER_API_URL is configured (not placeholder), use it for Render backend.
+ *  - If local development (file: or localhost:different-port), use http://127.0.0.1:3000/api.
+ *  - Otherwise, default to relative "/api" (Vercel Serverless or same-origin).
  */
 
-// ⬇️  UPDATE THIS with your Render backend URL once deployed:
+// ⬇️ UPDATE THIS with your Render backend URL once deployed on Render:
+// Example: "https://rankholder-backend.onrender.com/api"
 const RENDER_API_URL = "REPLACE_WITH_YOUR_RENDER_URL/api";
 
 (function () {
     let resolvedBase;
 
     if (typeof RANKHOLDER_BACKEND_URL !== "undefined" && RANKHOLDER_BACKEND_URL) {
-        // Injected at deploy time (e.g., via a <script> tag in HTML)
         resolvedBase = RANKHOLDER_BACKEND_URL;
+    } else if (
+        RENDER_API_URL &&
+        !RENDER_API_URL.startsWith("REPLACE_WITH")
+    ) {
+        // Deployed backend on Render
+        resolvedBase = RENDER_API_URL.replace(/\/$/, "");
     } else if (
         window.location.protocol === "file:" ||
         ((window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
@@ -31,16 +32,11 @@ const RENDER_API_URL = "REPLACE_WITH_YOUR_RENDER_URL/api";
     ) {
         // Local dev
         resolvedBase = "http://127.0.0.1:3000/api";
-    } else if (
-        window.location.hostname.endsWith(".vercel.app") ||
-        RENDER_API_URL !== "REPLACE_WITH_YOUR_RENDER_URL/api"
-    ) {
-        // Deployed on Vercel — use the Render backend
-        resolvedBase = RENDER_API_URL;
     } else {
-        // Same-origin production (e.g., Render hosting both frontend and backend)
+        // Same-origin (e.g., Vercel serverless or same-domain backend)
         resolvedBase = "/api";
     }
 
     window.__RANKHOLDER_API_BASE__ = resolvedBase;
+    console.log("🔗 RankHolder API Base:", window.__RANKHOLDER_API_BASE__);
 })();
