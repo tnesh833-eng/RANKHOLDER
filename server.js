@@ -54,7 +54,7 @@ const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
 const SUBSCRIPTION_AMOUNT_PAISE = 600; // ₹6 in paise
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "tnesh833@gmail.com").toLowerCase().trim();
 const ADMIN_EMAILS = ["tnesh833@gmail.com", "tnes833@gmail.com", "tneshdevil@gmail.com"];
 function isAdminEmail(email) {

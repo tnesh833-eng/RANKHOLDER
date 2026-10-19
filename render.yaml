@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rankholder-backend
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: CORS_ORIGINS
+        value: https://rankholder-frontend.vercel.app,https://rankholder-frontend-tharunesh-s-projects.vercel.app
+      - key: NODE_ENV
+        value: production
