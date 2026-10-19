@@ -215,6 +215,53 @@
                 </div>
             </div>
 
+            <!-- 🛡️ SECURITY MODULE: OTP VERIFICATION CODE POLICY -->
+            <div style="background:var(--bg-surface);border:1px solid rgba(229,191,125,0.35);border-radius:var(--radius-md);margin-bottom:24px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.4);">
+                <div style="background:linear-gradient(135deg,rgba(207,163,84,0.18),rgba(232,198,130,0.08));padding:20px 24px;border-bottom:1px solid rgba(229,191,125,0.2);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:1.4rem;">🛡️</span>
+                            <h3 style="font-size:1.15rem;font-weight:800;color:var(--brand-primary);margin:0;">Security Module — Verification Code Policy</h3>
+                        </div>
+                        <p style="font-size:0.82rem;color:var(--text-secondary);margin:4px 0 0;">
+                            Control verification code delivery and enforce strict administrator security.
+                        </p>
+                    </div>
+                </div>
+
+                <div style="padding:20px 24px;">
+                    <!-- Admin Rule Note -->
+                    <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:flex-start;gap:12px;">
+                        <span style="font-size:1.3rem;">🔒</span>
+                        <div>
+                            <div style="font-size:0.88rem;font-weight:800;color:#a5b4fc;margin-bottom:3px;">Strict Admin Security Policy (Always Active)</div>
+                            <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.45;">
+                                When <strong>tnesh83@gmail.com</strong>, <strong>tnesh833@gmail.com</strong>, or any administrator requests a code, it is sent <strong>ONLY to email</strong>, with strictly <strong>NO on-screen display</strong>.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Auto-Display Toggle -->
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:rgba(255,255,255,0.03);border:1px solid rgba(229,191,125,0.18);border-radius:10px;gap:16px;">
+                        <div>
+                            <div style="font-weight:700;font-size:0.92rem;color:var(--text-primary);margin-bottom:4px;">
+                                Automatically Display Verification Code on Website for Users
+                            </div>
+                            <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.4;">
+                                When enabled, candidates &amp; standard users see the verification code directly on screen and it auto-fills the 6 boxes. If disabled, all users must retrieve codes from email.
+                            </div>
+                        </div>
+                        <label style="position:relative;display:inline-block;width:50px;height:26px;cursor:pointer;flex-shrink:0;">
+                            <input type="checkbox" id="autoDisplayOtpToggle" checked style="opacity:0;width:0;height:0;" onchange="toggleAutoDisplayOtp(this.checked)">
+                            <span id="autoDisplayOtpTrack" style="position:absolute;inset:0;border-radius:26px;background:#cfa354;transition:background 0.25s;box-shadow:0 0 10px rgba(207,163,84,0.5);"></span>
+                            <span id="autoDisplayOtpThumb" style="position:absolute;top:3px;left:26px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left 0.25s;box-shadow:0 2px 5px rgba(0,0,0,0.3);"></span>
+                        </label>
+                    </div>
+
+                    <div id="securitySaveStatus" style="display:none;margin-top:12px;padding:10px 16px;border-radius:8px;font-size:0.82rem;font-weight:600;"></div>
+                </div>
+            </div>
+
             <!-- USER PERMISSION ACCESS MANAGEMENT (INFO-GLOBAL TAB) -->
             <div id="adminPermissionSection"
                 style="background:var(--bg-surface);border:1px solid rgba(229,191,125,0.35);border-radius:var(--radius-md);margin-bottom:24px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.4);">
@@ -664,6 +711,47 @@
             }
         };
 
+        window.toggleAutoDisplayOtp = async function(enabled) {
+            const track = document.getElementById("autoDisplayOtpTrack");
+            const thumb = document.getElementById("autoDisplayOtpThumb");
+            const status = document.getElementById("securitySaveStatus");
+
+            if (track && thumb) {
+                track.style.background = enabled ? "#cfa354" : "rgba(244,63,94,0.3)";
+                track.style.boxShadow = enabled ? "0 0 10px rgba(207,163,84,0.5)" : "none";
+                thumb.style.left = enabled ? "26px" : "3px";
+            }
+
+            try {
+                const token = getAuthToken();
+                const r = await fetch(API + "/admin/features", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { "Authorization": "Bearer " + token } : {})
+                    },
+                    body: JSON.stringify({ feature_name: "auto_display_user_otp", is_enabled: enabled ? 1 : 0 })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    status.style.display = "block";
+                    status.style.color = "#10b981";
+                    status.style.background = "rgba(16,185,129,0.08)";
+                    status.innerHTML = enabled
+                        ? "✅ Saved: Standard users will see verification code displayed directly on the website."
+                        : "✅ Saved: On-screen code display disabled. All users must retrieve codes from email.";
+                } else {
+                    throw new Error(d.error || "Failed to update setting");
+                }
+            } catch (e) {
+                status.style.display = "block";
+                status.style.color = "#f43f5e";
+                status.style.background = "rgba(244,63,94,0.08)";
+                status.innerHTML = "❌ Failed to save setting: " + e.message;
+            }
+            setTimeout(() => { if (status) status.style.display = "none"; }, 5000);
+        };
+
         async function loadTabConditions() {
             try {
                 const r = await fetch(API + "/app-settings"); const d = await r.json();
@@ -672,6 +760,20 @@
                     tabSettings.tabs[t.flag] = d.tabs.hasOwnProperty(t.flag) ? d.tabs[t.flag] : true;
                     tabSettings.blocked[t.flag] = d.tabs.hasOwnProperty(t.flag + "_blocked") ? d.tabs[t.flag + "_blocked"] : false;
                 });
+
+                // Load auto_display_user_otp state
+                if (typeof d.auto_display_user_otp !== 'undefined') {
+                    const otpToggle = document.getElementById("autoDisplayOtpToggle");
+                    const track = document.getElementById("autoDisplayOtpTrack");
+                    const thumb = document.getElementById("autoDisplayOtpThumb");
+                    const isEn = !!d.auto_display_user_otp;
+                    if (otpToggle) otpToggle.checked = isEn;
+                    if (track && thumb) {
+                        track.style.background = isEn ? "#cfa354" : "rgba(244,63,94,0.3)";
+                        track.style.boxShadow = isEn ? "0 0 10px rgba(207,163,84,0.5)" : "none";
+                        thumb.style.left = isEn ? "26px" : "3px";
+                    }
+                }
             } catch (e) { TAB_DEFS.forEach(t => { tabSettings.tabs[t.flag] = true; tabSettings.blocked[t.flag] = false; }); }
             renderTabRows(tabSettings);
         }

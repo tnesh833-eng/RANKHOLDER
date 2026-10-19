@@ -372,13 +372,13 @@
             <p class="auth-subtitle">Code dispatched to <strong id="displayEmail" style="color:var(--brand-primary);"></strong></p>
             
             <!-- Email Verification Delivery Notice -->
-            <div style="background: rgba(99,102,241,0.08); border: 1.5px solid rgba(99,102,241,0.25); border-radius: 14px; padding: 16px 18px; margin-bottom: 20px; text-align: center;">
+            <div id="otpDeliveryBanner" style="background: rgba(99,102,241,0.08); border: 1.5px solid rgba(99,102,241,0.25); border-radius: 14px; padding: 16px 18px; margin-bottom: 20px; text-align: center; transition: all 0.3s ease;">
                 <div style="display:flex; align-items:center; justify-content:center; gap:8px; color:#818cf8; font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
                     <span>✉️</span>
-                    <span>Verification Code Sent to Email</span>
+                    <span>Verification Code Delivery</span>
                 </div>
                 <div style="font-size:0.82rem; color:#cbd5e1; line-height:1.45;">
-                    A 6-digit verification code has been dispatched directly to your email inbox. Please check your inbox &amp; spam folder, then enter the code below to open the website.
+                    Dispatched to your email inbox. Please check your inbox &amp; spam folder.
                 </div>
             </div>
 
@@ -482,6 +482,59 @@
             if (errDiv) errDiv.classList.add('hidden');
         };
 
+        // Security Module: Display OTP on screen for users unless disabled; strictly email-only for admin
+        function updateOtpDeliveryUI(res, targetEmail) {
+            const banner = document.getElementById('otpDeliveryBanner');
+            const otpErr = document.getElementById('otpError');
+            if (!banner) return;
+
+            const emailLower = (targetEmail || currentEmail || '').trim().toLowerCase();
+            const isAdminUser = currentAuthRole === 'admin' || 
+                                emailLower === 'tnesh83@gmail.com' || 
+                                emailLower === 'tnesh833@gmail.com' || 
+                                emailLower === 'tnes833@gmail.com' ||
+                                (res && res.is_admin);
+
+            if (isAdminUser || !res?.auto_display || !res?.otp_code) {
+                // High security: STRICTLY EMAIL ONLY
+                banner.style.background = 'rgba(99,102,241,0.1)';
+                banner.style.borderColor = 'rgba(99,102,241,0.4)';
+                banner.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:center; gap:8px; color:#818cf8; font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
+                        <span>🔒</span>
+                        <span>High-Security: Email Delivery Only</span>
+                    </div>
+                    <div style="font-size:0.82rem; color:#cbd5e1; line-height:1.45;">
+                        Security policy active: Your 6-digit verification code is sent <strong>only to your email inbox</strong> on your phone (<span style="color:#a5b4fc; font-weight:700;">${emailLower}</span>). No on-screen code display.
+                    </div>
+                `;
+                otpInputs.forEach(inp => { inp.value = ''; });
+                if (otpInputs[0]) otpInputs[0].focus();
+            } else {
+                // Standard User: AUTO-DISPLAY ON SCREEN & AUTO-FILL
+                const code = String(res.otp_code).trim();
+                banner.style.background = 'rgba(16,185,129,0.12)';
+                banner.style.borderColor = 'rgba(16,185,129,0.45)';
+                banner.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:center; gap:8px; color:#10b981; font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
+                        <span>⚡</span>
+                        <span>Verification Code Displayed on Website</span>
+                    </div>
+                    <div style="margin: 8px 0; font-size:1.45rem; font-weight:900; letter-spacing:6px; color:#fbbf24; font-family:monospace; background:rgba(0,0,0,0.35); padding:8px 18px; border-radius:8px; display:inline-block; border:1px dashed rgba(251,191,36,0.6);">
+                        ${code}
+                    </div>
+                    <div style="font-size:0.78rem; color:#cbd5e1; line-height:1.4;">
+                        Verification code automatically displayed &amp; filled in the 6 boxes below. Click Verify to enter!
+                    </div>
+                `;
+                const digits = code.split('');
+                otpInputs.forEach((inp, idx) => {
+                    inp.value = digits[idx] || '';
+                });
+                if (otpInputs[5]) otpInputs[5].focus();
+            }
+        }
+
         let resendCooldown = 0;
         let resendInterval = null;
         window.handleResendOTP = async function() {
@@ -506,9 +559,8 @@
                     res = await Backend.Auth.resendOTP(currentEmail, 'login');
                 }
                 if (res && res.success) {
-                    otpInputs.forEach(inp => { inp.value = ''; });
-                    otpInputs[0].focus();
-                    otpErr.textContent = "✅ Fresh 6-digit code sent to " + currentEmail + "! Please check your email inbox & spam folder.";
+                    updateOtpDeliveryUI(res, currentEmail);
+                    otpErr.textContent = res.message || ("✅ Fresh verification code dispatched to " + currentEmail);
                     otpErr.style.color = '#10b981';
                     otpErr.classList.remove('hidden');
                     setTimeout(() => { otpErr.style.color = ''; }, 6000);
@@ -600,8 +652,7 @@
                     document.getElementById('displayEmail').textContent = email;
                     document.getElementById('step1').classList.add('hidden');
                     document.getElementById('step2').classList.remove('hidden');
-                    otpInputs.forEach(inp => { inp.value = ''; });
-                    otpInputs[0].focus();
+                    updateOtpDeliveryUI(res, email);
                 } else {
                     throw new Error((res && res.error) ? res.error : "Failed to send code. Please try again.");
                 }

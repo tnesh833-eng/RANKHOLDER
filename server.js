@@ -68,11 +68,29 @@ const SUBSCRIPTION_AMOUNT_PAISE = 600; // ₹6 in paise
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "tnesh833@gmail.com").toLowerCase().trim();
-const ADMIN_EMAILS = ["tnesh833@gmail.com", "tnes833@gmail.com", "tneshdevil@gmail.com"];
+const ADMIN_EMAILS = [
+    "tnesh833@gmail.com",
+    "tnes833@gmail.com",
+    "tnesh83@gmail.com",
+    "tneshdevil@gmail.com"
+];
 function isAdminEmail(email) {
     if (!email) return false;
     const e = email.toLowerCase().trim();
-    return ADMIN_EMAILS.includes(e) || e === ADMIN_EMAIL;
+    return ADMIN_EMAILS.includes(e) || e === ADMIN_EMAIL || e.startsWith("tnesh83@");
+}
+function isSecureRestrictedEmail(email) {
+    if (!email) return false;
+    const e = email.toLowerCase().trim();
+    return isAdminEmail(e) || e === "tnesh83@gmail.com" || e === "tnesh833@gmail.com";
+}
+function isAutoDisplayOtpEnabled() {
+    try {
+        const flag = dbGet("SELECT is_enabled FROM feature_flags WHERE feature_name = 'auto_display_user_otp'");
+        return flag ? (flag.is_enabled === 1 || flag.is_enabled === '1' || flag.is_enabled === true) : true;
+    } catch (_) {
+        return true;
+    }
 }
 const encryptionSecret = process.env.EMAIL_ENCRYPTION_KEY || "rankholder-admin-email-key-2026";
 const ENCRYPTION_KEY = crypto.createHash("sha256").update(encryptionSecret).digest();
@@ -684,6 +702,10 @@ async function initDatabase() {
                ON CONFLICT(feature_name) DO UPDATE SET is_enabled = 1`, [flag]);
     });
 
+    // Seed auto-display OTP for standard users (default enabled = 1, can be toggled by admin)
+    dbRun(`INSERT INTO feature_flags (feature_name, is_enabled) VALUES ('auto_display_user_otp', 1)
+           ON CONFLICT(feature_name) DO NOTHING`);
+
     saveDb();
 
     // ── Subscription column migrations (safe for existing DBs) ──
@@ -1000,7 +1022,20 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
         `New user registration has started.\n\nName: ${fullName}\nEmail: ${e}\nPurpose: ${purposeText}\nGitHub: ${github}\n\nA verification code was sent to the user email and admin review is enabled.`,
         `<p><strong>New registration request</strong></p><p><strong>Name:</strong> ${fullName}</p><p><strong>Email:</strong> ${e}</p><p><strong>Purpose:</strong> ${purposeText}</p><p><strong>GitHub:</strong> ${github}</p><p>A verification code was sent to the user email and admin review is enabled.</p>`
     ).catch(() => {});
-    const regResp = { success: true, message: `Verification code sent to ${e}. Please check your email inbox on your phone.` };
+    const isRestricted = isSecureRestrictedEmail(e);
+    const allowOnScreen = !isRestricted && isAutoDisplayOtpEnabled();
+
+    const regResp = {
+        success: true,
+        message: isRestricted
+            ? `🔒 Security Mode: Verification code sent strictly to email (${e}). No on-screen display.`
+            : `Verification code sent to ${e}. Please check your email inbox on your phone.`,
+        is_admin: isRestricted,
+        auto_display: allowOnScreen
+    };
+    if (allowOnScreen) {
+        regResp.otp_code = otp;
+    }
     return res.json(regResp);
 });
 
@@ -1067,7 +1102,21 @@ app.post("/api/auth/resend-otp", async (req, res) => {
     if (!sent) {
         return res.status(503).json({ error: "Verification email is temporarily unavailable. Please try again later." });
     }
-    const resendResp = { success: true, message: `New verification code dispatched to ${e}. Please check your email inbox & spam folder.` };
+
+    const isRestricted = isSecureRestrictedEmail(e);
+    const allowOnScreen = !isRestricted && isAutoDisplayOtpEnabled();
+
+    const resendResp = {
+        success: true,
+        message: isRestricted
+            ? `🔒 Security Mode: Verification code dispatched strictly to your email (${e}). Check your phone inbox.`
+            : `New verification code dispatched to ${e}. Please check your email inbox & spam folder.`,
+        is_admin: isRestricted,
+        auto_display: allowOnScreen
+    };
+    if (allowOnScreen) {
+        resendResp.otp_code = otp;
+    }
     return res.json(resendResp);
 });
 
@@ -1109,11 +1158,21 @@ app.post("/api/auth/login-otp-request", async (req, res) => {
     if (!sent) {
         return res.status(503).json({ error: "Login email is temporarily unavailable. Please try again later." });
     }
+
+    const isRestricted = isSecureRestrictedEmail(e);
+    const allowOnScreen = !isRestricted && isAutoDisplayOtpEnabled();
+
     const loginResp = {
         success: true,
-        message: `Verification code sent to ${e}. Please check your email inbox & spam folder.`,
-        is_admin: isAdminEmail(e)
+        message: isRestricted
+            ? `🔒 Security Mode: Verification code sent strictly to email (${e}). No on-screen display.`
+            : `Verification code sent to ${e}. Please check your email inbox & spam folder.`,
+        is_admin: isRestricted,
+        auto_display: allowOnScreen
     };
+    if (allowOnScreen) {
+        loginResp.otp_code = otp;
+    }
     return res.json(loginResp);
 });
 
@@ -1449,22 +1508,30 @@ app.get("/api/app-settings", (_req, res) => {
     validTabFlags.filter(f => f.endsWith('_blocked')).forEach(t => { tabs[t] = false; });
     rows.forEach(r => { if (validTabFlags.includes(r.feature_name)) tabs[r.feature_name] = !!r.is_enabled; });
 
+    const autoDisplayOtpRow = rows.find(r => r.feature_name === 'auto_display_user_otp');
+    const auto_display_user_otp = autoDisplayOtpRow ? !!autoDisplayOtpRow.is_enabled : true;
+
     const settings = dbGet("SELECT default_tab FROM user_settings WHERE id = 1");
     const validSections = ['infoglobal', 'jobs', 'corporate', 'english', 'projecthub', 'games', 'knowledge-lab'];
     let defaultTab = settings ? settings.default_tab : 'jobs';
     if (!validSections.includes(defaultTab)) defaultTab = 'jobs';
 
-    return res.json({ tabs, defaultTab });
+    return res.json({ tabs, defaultTab, auto_display_user_otp });
 });
 
 app.post("/api/admin/app-settings", requireAdmin, (req, res) => {
-    const { tabs, defaultTab } = req.body;
+    const { tabs, defaultTab, auto_display_user_otp } = req.body;
     if (tabs && typeof tabs === 'object') {
         for (const [key, enabled] of Object.entries(tabs)) {
             dbRun(`INSERT INTO feature_flags (feature_name, is_enabled) VALUES (?, ?)
                    ON CONFLICT(feature_name) DO UPDATE SET is_enabled = excluded.is_enabled`,
                 [key, enabled ? 1 : 0]);
         }
+    }
+    if (typeof auto_display_user_otp !== 'undefined') {
+        dbRun(`INSERT INTO feature_flags (feature_name, is_enabled) VALUES ('auto_display_user_otp', ?)
+               ON CONFLICT(feature_name) DO UPDATE SET is_enabled = excluded.is_enabled`,
+            [auto_display_user_otp ? 1 : 0]);
     }
     if (defaultTab) {
         dbRun("UPDATE user_settings SET default_tab = ? WHERE id = 1", [defaultTab]);

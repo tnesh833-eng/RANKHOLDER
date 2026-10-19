@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rankholder-backend
+    name: Placement
     runtime: node
     plan: free
     region: singapore
@@ -11,7 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: CORS_ORIGINS
-        value: https://rankholder-frontend.vercel.app,https://rankholder-frontend-tharunesh-s-projects.vercel.app,https://rankholder-backend.onrender.com
+        value: https://rankholder-frontend.vercel.app,https://rankholder-frontend-tharunesh-s-projects.vercel.app,https://rankholder-backend.onrender.com,https://placement.onrender.com
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
