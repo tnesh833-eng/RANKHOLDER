@@ -100,8 +100,14 @@ app.set("trust proxy", 1); // Trust first proxy if behind Heroku/AWS
 // HTTPS Redirect Middleware (Enforce HTTPS in production when not on localhost)
 app.use((req, res, next) => {
     const host = req.headers.host || "";
-    if (process.env.NODE_ENV === "production" && req.headers["x-forwarded-proto"] !== "https" && !host.includes("localhost") && !host.includes("127.0.0.1")) {
-        return res.redirect("https://" + host + req.url);
+    if (
+        process.env.NODE_ENV === "production" &&
+        req.headers["x-forwarded-proto"] !== "https" &&
+        !host.includes("localhost") &&
+        !host.includes("127.0.0.1") &&
+        !req.path.startsWith("/api")
+    ) {
+        return res.redirect(301, "https://" + host + req.url);
     }
     next();
 });
@@ -2211,6 +2217,14 @@ function analyzeEnglishLocally(message, mode = "friendly", topic = "Corporate Co
         tip
     };
 }
+
+app.get("/api/ai/chat", (req, res) => {
+    res.json({
+        status: "ok",
+        service: "Rank Holder English Communication AI",
+        message: "Send a POST request with { message, mode, topic } to interact with the AI interview partner."
+    });
+});
 
 app.post("/api/ai/chat", async (req, res) => {
     const header = req.headers["authorization"] || "";
