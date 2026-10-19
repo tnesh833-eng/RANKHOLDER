@@ -731,6 +731,12 @@
                 } else {
                     res = await Backend.Auth.login(currentEmail, otp);
                     if (res && res.success) {
+                        if (res.token) {
+                            localStorage.setItem('rh_auth_token', res.token);
+                        }
+                        if (res.user) {
+                            localStorage.setItem('rh_user', JSON.stringify(res.user));
+                        }
                         localStorage.setItem('rh_registered_email', currentEmail.toLowerCase());
                         if (currentPhoto) {
                             try {

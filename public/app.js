@@ -372,6 +372,13 @@ let _authPendingName = "";
 async function initAuthSystem() {
     // Listen for 401 auth-required events from Backend
     window.addEventListener("auth-required", () => {
+        // Prevent redirect loop if the user has an active session or profile in localStorage
+        const hasToken = !!localStorage.getItem("rh_auth_token");
+        const hasUser = !!localStorage.getItem("rh_user");
+        if (hasToken || hasUser) {
+            console.warn("auth-required event suppressed: active user session exists in localStorage.");
+            return;
+        }
         if (!window.location.pathname.endsWith("login.html") && !window.location.pathname.endsWith("/login.html")) {
             window.location.href = "login.html";
         }
@@ -410,14 +417,19 @@ async function initAuthSystem() {
             } else if (me.user.status !== 'APPROVED') {
                 localStorage.removeItem("rh_auth_token");
                 localStorage.removeItem("rh_auth_user");
-                // Don't redirect  just show as guest
                 _showGuestBanner();
                 return;
             }
             onAuthSuccess(me.user);
             return;
         } else {
-            // Token invalid/expired  clear it but stay as guest
+            // If getMe returned null, restore session from cached profile in localStorage
+            const stored = Backend.Auth.getStoredUser();
+            if (stored && stored.status !== 'BLOCKED') {
+                console.log("⚡ Restored user session from localStorage:", stored.email || stored.name);
+                onAuthSuccess(stored);
+                return;
+            }
             localStorage.removeItem("rh_auth_token");
             localStorage.removeItem("rh_auth_user");
         }

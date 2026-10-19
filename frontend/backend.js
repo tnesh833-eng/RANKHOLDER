@@ -24,6 +24,10 @@ const Backend = {
         if (token) {
             options.headers["Authorization"] = `Bearer ${token}`;
         }
+        const registeredEmail = localStorage.getItem("rh_registered_email");
+        if (registeredEmail) {
+            options.headers["x-user-email"] = registeredEmail;
+        }
         if (body) {
             options.body = JSON.stringify(body);
         }
@@ -31,8 +35,8 @@ const Backend = {
             const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                // If auth required, signal to frontend
-                if (response.status === 401 && errorData.auth_required) {
+                // If auth required, signal to frontend (never trigger on /auth/me probe to avoid redirect loops)
+                if (response.status === 401 && errorData.auth_required && !endpoint.includes("/auth/me")) {
                     window.dispatchEvent(new CustomEvent("auth-required"));
                 }
                 // If user is blocked, force logout
