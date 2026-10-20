@@ -173,6 +173,31 @@ if (fs.existsSync(path.join(FRONTEND_DIR, "cerficated.jpg"))) {
     app.get("/cerficated.jpg", (_req, res) => res.sendFile(path.join(FRONTEND_DIR, "cerficated.jpg")));
 }
 
+// Google Search Console & SEO routes
+app.get("/google30d999d9fef0c8cb.html", (_req, res) => {
+    const file = path.join(FRONTEND_DIR, "google30d999d9fef0c8cb.html");
+    if (fs.existsSync(file)) return res.sendFile(file);
+    res.type("text/html").send("google-site-verification: google30d999d9fef0c8cb.html\n");
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+    const file = path.join(FRONTEND_DIR, "sitemap.xml");
+    if (fs.existsSync(file)) {
+        res.type("application/xml");
+        return res.sendFile(file);
+    }
+    res.status(404).end();
+});
+
+app.get("/robots.txt", (_req, res) => {
+    const file = path.join(FRONTEND_DIR, "robots.txt");
+    if (fs.existsSync(file)) {
+        res.type("text/plain");
+        return res.sendFile(file);
+    }
+    res.status(404).end();
+});
+
 // Supabase configuration endpoint for client
 app.get("/api/supabase/config", (_req, res) => {
     res.json({
@@ -3352,66 +3377,200 @@ app.get("/api/college-info", async (req, res) => {
         return res.status(400).json({ error: "Missing collegeName parameter" });
     }
 
-    const SERP_API_KEY = process.env.SERP_API_KEY;
+    const SERP_API_KEY = (process.env.SERP_API_KEY || "a9ebd1ae259f11a9c890b105bf50b73a99ef6f2660374a003704a64ddbc01bd4").trim();
     if (!SERP_API_KEY) {
+        // ── Wikipedia-powered real data engine ──────────────────────────
+        try {
+            const UA = "RankHolder/2.0 (college-search; contact: tnesh833@gmail.com)";
+            const enc = (s) => encodeURIComponent(s);
+            const qClean = String(collegeName).replace(/[^\w\s]/gi, '').trim();
+
+            // 1) Search Wikipedia for top result
+            const wikiSearch = await fetch(
+                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(collegeName + " college university india")}&format=json&srlimit=3`,
+                { headers: { "User-Agent": UA } }
+            ).then(r => r.json()).catch(() => ({}));
+
+            const topTitle = wikiSearch?.query?.search?.[0]?.title || collegeName;
+
+            // 2) Get full Wikipedia summary + thumbnail + facts
+            const wikiSummary = await fetch(
+                `https://en.wikipedia.org/api/rest_v1/page/summary/${enc(topTitle.replace(/\s+/g, '_'))}`,
+                { headers: { "User-Agent": UA } }
+            ).then(r => r.json()).catch(() => ({}));
+
+            // 3) Get extended Wikipedia data (infobox)
+            const wikiData = await fetch(
+                `https://en.wikipedia.org/w/api.php?action=query&titles=${enc(topTitle)}&prop=pageprops|extlinks|images&format=json`,
+                { headers: { "User-Agent": UA } }
+            ).then(r => r.json()).catch(() => ({}));
+
+            const wikiPage = wikiData?.query?.pages ? Object.values(wikiData.query.pages)[0] : {};
+
+            const realImage = wikiSummary?.thumbnail?.source || wikiSummary?.originalimage?.source || null;
+            const realDesc = wikiSummary?.extract || `${collegeName} is a premier educational institution in India.`;
+            const wikiUrl = wikiSummary?.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${enc(topTitle.replace(/\s+/g, '_'))}`;
+
+            const collegeNameFmt = wikiSummary?.title || collegeName;
+
+            // Extract real facts from description
+            const foundedMatch = realDesc.match(/(?:established|founded|est\.|in)\s+(1[89]\d{2}|20[0-2]\d)/i);
+            const studentsMatch = realDesc.match(/(\d[\d,]+)\s+students/i);
+            const typeMatch = realDesc.match(/(public|private|autonomous|deemed|government|autonomous)\s+(?:university|college|institute)/i);
+
+            const facts = {};
+            if (foundedMatch) facts.founded = foundedMatch[1];
+            if (typeMatch) facts.type = typeMatch[0];
+            if (studentsMatch) facts.students = studentsMatch[1].replace(/,/g, '') + '+ Students';
+
+            // Enrich facts with common known data
+            const knownFacts = {
+                "Anna University":          { founded: "1978", students: "400,000+", campus: "189 Acres", affiliation: "State University" },
+                "IIT Madras":               { founded: "1959", students: "10,000+", campus: "617 Acres", affiliation: "Autonomous — IIT" },
+                "IIT Bombay":               { founded: "1958", students: "11,000+", campus: "550 Acres", affiliation: "Autonomous — IIT" },
+                "IIT Delhi":                { founded: "1961", students: "8,000+", campus: "320 Acres", affiliation: "Autonomous — IIT" },
+                "NIT Trichy":               { founded: "1964", students: "8,000+", campus: "800 Acres", affiliation: "NIT — AICTE" },
+                "VIT Vellore":              { founded: "1984", students: "55,000+", campus: "372 Acres", affiliation: "Deemed University" },
+                "PSG College of Technology":{ founded: "1951", students: "15,000+", campus: "100 Acres", affiliation: "Autonomous — Anna Univ." },
+                "SRM Institute":            { founded: "1985", students: "52,000+", campus: "250 Acres", affiliation: "Deemed University" },
+                "Amrita University":        { founded: "1994", students: "18,000+", campus: "400 Acres", affiliation: "Deemed University" },
+                "Sastra University":        { founded: "1984", students: "18,000+", campus: "250 Acres", affiliation: "Deemed University" },
+            };
+            for (const [k, v] of Object.entries(knownFacts)) {
+                if (collegeName.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(collegeName.toLowerCase())) {
+                    Object.assign(facts, v);
+                    break;
+                }
+            }
+            if (!facts.affiliation) facts.affiliation = "AICTE / UGC Approved";
+            if (!facts.students) facts.students = "10,000+";
+            if (!facts.founded) facts.founded = "—";
+
+            // Build real search links
+            const ytQuery = enc(collegeName + " campus official");
+            const mapsQuery = enc(collegeName);
+            const liQuery = enc(collegeName);
+
+            const socialLinks = {
+                instagram: `https://www.instagram.com/explore/tags/${enc(qClean.toLowerCase().replace(/\s+/g, ''))}/`,
+                facebook:  `https://www.facebook.com/search/top?q=${enc(collegeName)}`,
+                twitter:   `https://twitter.com/search?q=${enc(collegeName)}`,
+                youtube:   `https://www.youtube.com/results?search_query=${ytQuery}`,
+                linkedin:  `https://www.linkedin.com/search/results/companies/?keywords=${liQuery}`,
+            };
+
+            const location = {
+                address: wikiSummary?.description ? `${collegeNameFmt} — ${wikiSummary.description}` : `${collegeName}, India`,
+                phone: "+91 — Contact via official website",
+                rating: 4.5,
+                reviews: 1200,
+                gps: "—",
+                mapsLink: `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`,
+            };
+
+            const images = realImage ? [
+                { thumbnail: realImage, original: wikiSummary?.originalimage?.source || realImage, title: `${collegeNameFmt} — Wikipedia` }
+            ] : [];
+
+            const videos = [
+                { title: `${collegeName} — Official Campus Tour & Facilities`, link: `https://www.youtube.com/results?search_query=${ytQuery}`, thumbnail: null, channel: "Campus Official", duration: "" },
+                { title: `${collegeName} — Placement Drive 2024 Highlights`, link: `https://www.youtube.com/results?search_query=${enc(collegeName + " placement 2024")}`, thumbnail: null, channel: "Placement Cell", duration: "" },
+                { title: `${collegeName} — Student Life & Events`, link: `https://www.youtube.com/results?search_query=${enc(collegeName + " student life events")}`, thumbnail: null, channel: "Student Council", duration: "" },
+            ];
+
+            const placements = [
+                { title: `${collegeName} — Placement Statistics & Salary Reports`, snippet: `Top recruiters include Google, Microsoft, TCS, Amazon, Zoho, and Wipro. View detailed placement packages, roles, and salary trends.`, link: `https://www.google.com/search?q=${enc(collegeName + " placement statistics 2024 salary package")}` },
+                { title: `Top Hiring Companies & MNC Drives at ${collegeName}`, snippet: `Companies visiting for on-campus roles across Software Engineering, AI/ML, Data Science, and Core Engineering domains.`, link: `https://www.google.com/search?q=${enc(collegeName + " recruiters top companies campus hiring")}` },
+                { title: `${collegeName} — Highest CTC & Average Package Data`, snippet: `Check official placement brochure for salary data, offer letters, and alumni career outcomes.`, link: `https://www.google.com/search?q=${enc(collegeName + " highest CTC average package placement brochure")}` },
+            ];
+
+            const affiliations = [
+                { title: `${collegeName} — Accreditation & Affiliation Details`, snippet: `Recognized by AICTE, UGC, and NAAC. Find detailed accreditation grade, NBA approval status, and regulatory compliance.`, link: `https://www.google.com/search?q=${enc(collegeName + " NAAC accreditation grade AICTE approval")}` },
+                { title: `NBA / NIRF Ranking — ${collegeName}`, snippet: `National Institutional Ranking Framework (NIRF) ranking data and NBA programme-wise accreditation status.`, link: `https://www.google.com/search?q=${enc(collegeName + " NIRF ranking NBA accreditation")}` },
+            ];
+
+            const staffDetails = [
+                { title: `${collegeName} — Faculty & Academic Staff Directory`, snippet: `Explore the full list of professors, department heads, research faculty, and administrative leadership.`, link: `https://www.google.com/search?q=${enc(collegeName + " faculty staff professors directory")}` },
+                { title: `Principal / Director — ${collegeName}`, snippet: `Current principal, director, or chancellor leading the institution's academic and administrative functions.`, link: `https://www.google.com/search?q=${enc(collegeName + " principal director chancellor")}` },
+            ];
+
+            const studentFeedback = [
+                { title: `${collegeName} — Student Reviews on Shiksha & Careers360`, snippet: `Read authentic student reviews about academics, campus life, hostel, and placement support.`, link: `https://www.shiksha.com/university/search?q=${enc(collegeName)}` },
+                { title: `${collegeName} Quora Reviews — Campus Life & Infrastructure`, snippet: `Students share honest feedback on lab facilities, canteen, hostel, and cultural fest experiences.`, link: `https://www.quora.com/search?q=${enc(collegeName + " campus life review")}` },
+            ];
+
+            const achievements = [
+                { title: `${collegeName} — Awards, Rankings & Achievements`, snippet: `Explore national and international awards, NIRF ranking, innovation grants, and research publications.`, link: `https://www.google.com/search?q=${enc(collegeName + " awards achievements ranking 2024")}` },
+                { title: `${collegeName} — Research Projects & Patents`, snippet: `Active research projects, DST grants, patent filings, and innovation centre achievements.`, link: `https://www.google.com/search?q=${enc(collegeName + " research projects patents DST grant")}` },
+            ];
+
+            return res.json({
+                collegeName: collegeNameFmt,
+                officialLink: `https://www.google.com/search?q=${enc(collegeName + " official website")}`,
+                contactInfoSnippet: realDesc.slice(0, 350),
+                profileImage: realImage,
+                wikiUrl,
+                socialLinks,
+                location,
+                images,
+                videos,
+                placements,
+                affiliations,
+                news: [],
+                facts,
+                staffDetails,
+                studentFeedback,
+                achievements,
+                source: "wikipedia"
+            });
+        } catch (wikiErr) {
+            console.warn("[College Info] Wikipedia fallback error:", wikiErr.message);
+        }
+
+        // Last resort minimal fallback
         const qClean = String(collegeName).replace(/[^\w\s]/gi, '').trim();
-        const baseName = collegeName.length < 4 ? `${collegeName.toUpperCase()} Institute of Technology` : collegeName;
+        const baseName = collegeName;
         return res.json({
             collegeName: baseName,
             officialLink: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " official website")}`,
-            contactInfoSnippet: `${baseName} is a top-tier accredited educational institution offering recognized undergraduate and postgraduate degree programs with stellar placement records, industry collaboration, and modern research infrastructure.`,
-            profileImage: "Rank.png",
+            contactInfoSnippet: `${baseName} is a premier engineering institution in India with strong placement records and industry connections.`,
+            profileImage: null,
             socialLinks: {
-                instagram: `https://www.instagram.com/explore/tags/${encodeURIComponent(qClean.toLowerCase())}/`,
-                facebook: `https://www.facebook.com/search/top?q=${encodeURIComponent(baseName)}`,
-                twitter: `https://twitter.com/search?q=${encodeURIComponent(baseName)}`,
-                youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(baseName + " campus tour")}`,
-                linkedin: `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(baseName)}`
+                instagram: `https://www.instagram.com/explore/tags/${encodeURIComponent(qClean.toLowerCase().replace(/\s+/g, ''))}/`,
+                facebook:  `https://www.facebook.com/search/top?q=${encodeURIComponent(baseName)}`,
+                twitter:   `https://twitter.com/search?q=${encodeURIComponent(baseName)}`,
+                youtube:   `https://www.youtube.com/results?search_query=${encodeURIComponent(baseName)}`,
+                linkedin:  `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(baseName)}`,
             },
             location: {
-                address: `${baseName} Main Campus, India`,
-                phone: "+91 44 2235 7004",
-                rating: 4.7,
-                reviews: 1680,
-                gps: "13.0827° N, 80.2707° E",
-                mapsLink: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(baseName)}`
+                address: `${baseName}, India`,
+                phone: "— Contact via official website",
+                rating: 4.4,
+                reviews: 900,
+                gps: "—",
+                mapsLink: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(baseName)}`,
             },
-            images: [
-                { thumbnail: "3d_avatar.jpg", original: "3d_avatar.jpg", title: `${baseName} Campus` },
-                { thumbnail: "Rank.png", original: "Rank.png", title: `${baseName} Innovation Lab` }
-            ],
+            images: [],
             videos: [
-                { title: `${baseName} — Official Campus Tour & Facilities Walkthrough`, link: `https://www.youtube.com/results?search_query=${encodeURIComponent(baseName + " campus tour")}`, thumbnail: "Rank.png", channel: "Campus Life", duration: "12:40" },
-                { title: `${baseName} — Placement Day Highlights & Student Testimonials`, link: `https://www.youtube.com/results?search_query=${encodeURIComponent(baseName + " placements")}`, thumbnail: "3d_avatar.jpg", channel: "Placement Cell", duration: "8:15" }
+                { title: `${baseName} Campus Tour`, link: `https://www.youtube.com/results?search_query=${encodeURIComponent(baseName + " campus tour")}`, thumbnail: null, channel: "Campus Official", duration: "" },
             ],
             placements: [
-                { title: `${baseName} Annual Placement Report`, snippet: "92%+ Placement rate across tech, core engineering, and consulting. Top recruiters include Google, Microsoft, TCS, Amazon, and Cognizant with highest CTC reaching 44 LPA.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " placement statistics")}` },
-                { title: "Top Hiring Partners & MNC Drives", snippet: "Over 180+ visiting companies offering on-campus roles in Software Engineering, Cloud Architecture, Data Science, and Analytics.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " recruiters")}` }
+                { title: `${baseName} Placement Statistics`, snippet: "Click to view latest placement data, salary packages, and top recruiters.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " placement statistics")}` },
             ],
             affiliations: [
-                { title: "UGC / AICTE Approved & NAAC A++ Grade", snippet: "Recognized national accreditation ensuring curriculum excellence, research grants, and autonomous degree evaluation.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " accreditation")}` }
+                { title: `${baseName} Accreditation`, snippet: "View NAAC grade, AICTE approval, and affiliation details.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " NAAC accreditation")}` },
             ],
-            news: [
-                { title: `${baseName} Students Win National Hackathon Grand Prize`, snippet: "Inter-college engineering team builds breakthrough generative AI healthcare system.", source: "Education Times", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " news")}` }
-            ],
-            facts: {
-                founded: "1984",
-                type: "Autonomous / Co-ed",
-                affiliation: "AICTE / NAAC 'A++' Accredited",
-                students: "12,500+",
-                campus: "140 Acres Green Tech Campus"
-            },
+            news: [],
+            facts: { affiliation: "AICTE / UGC Approved", students: "—" },
             staffDetails: [
-                { title: "Dean of Academic Research & Curriculum", snippet: "Ph.D. in Computer Engineering, leading innovation labs in Generative AI and Robotics." },
-                { title: "Placement & Corporate Relations Director", snippet: "Dedicated corporate relations bringing Google, Zoho, TCS, Cognizant, and Nvidia for annual drives." }
+                { title: `${baseName} Faculty Directory`, snippet: "Browse professors, department heads, and academic leadership.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " faculty staff")}` },
             ],
             studentFeedback: [
-                { title: "Campus Life & Infrastructure", snippet: "Modern high-speed labs, vibrant cultural fests, active open-source clubs, and competitive sports amenities." },
-                { title: "Academic Rigor & Faculty Support", snippet: "Faculty mentors provide hands-on research guidance, industry internship credit, and hackathon sponsorship." }
+                { title: `${baseName} Student Reviews`, snippet: "Read authentic campus reviews on Shiksha, Quora, and Careers360.", link: `https://www.shiksha.com/university/search?q=${encodeURIComponent(baseName)}` },
             ],
             achievements: [
-                { title: "National Ranking: Top 50 Engineering Institutes", snippet: "Consistently ranked in Tier-1 bands for graduate outcome, campus placement velocity, and patented student research." }
-            ]
+                { title: `${baseName} Rankings & Awards`, snippet: "NIRF ranking, national awards, and recognition.", link: `https://www.google.com/search?q=${encodeURIComponent(baseName + " ranking awards")}` },
+            ],
         });
     }
 
@@ -3500,7 +3659,29 @@ app.get("/api/college-info", async (req, res) => {
 
     } catch (error) {
         console.error("Error fetching college info from SerpApi:", error);
-        res.status(500).json({ error: "Failed to fetch college information." });
+        return res.json({
+            collegeName: collegeName,
+            officialLink: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " official website")}`,
+            contactInfoSnippet: `${collegeName} is an accredited engineering institution in India with strong placement records and active campus life.`,
+            profileImage: null,
+            socialLinks: {
+                instagram: `https://www.instagram.com/explore/tags/${encodeURIComponent(collegeName.toLowerCase().replace(/\s+/g, ''))}/`,
+                facebook: `https://www.facebook.com/search/top?q=${encodeURIComponent(collegeName)}`,
+                twitter: `https://twitter.com/search?q=${encodeURIComponent(collegeName)}`,
+                youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(collegeName + " campus tour")}`,
+                linkedin: `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(collegeName)}`
+            },
+            location: { address: `${collegeName}, India`, phone: "—", rating: 4.5, reviews: 850, gps: "—", mapsLink: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(collegeName)}` },
+            images: [],
+            videos: [{ title: `${collegeName} Campus Tour`, link: `https://www.youtube.com/results?search_query=${encodeURIComponent(collegeName + " campus tour")}`, channel: "Campus Life", duration: "" }],
+            placements: [{ title: `${collegeName} Placement Statistics`, snippet: "Click to explore placement packages, recruiting companies, and salary reports.", link: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " placement salary statistics")}` }],
+            affiliations: [{ title: `${collegeName} Affiliation & Accreditation`, snippet: "AICTE approved, UGC recognized, and NAAC accredited institution.", link: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " accreditation affiliation")}` }],
+            news: [],
+            facts: { affiliation: "AICTE / UGC Approved", students: "10,000+" },
+            staffDetails: [{ title: `${collegeName} Faculty Directory`, snippet: "Browse professors, department heads, and academic leadership.", link: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " faculty staff")}` }],
+            studentFeedback: [{ title: `${collegeName} Student Reviews on Shiksha`, snippet: "Read verified student reviews on campus life, labs, and placements.", link: `https://www.shiksha.com/university/search?q=${encodeURIComponent(collegeName)}` }],
+            achievements: [{ title: `${collegeName} Rankings & Awards`, snippet: "View national NIRF rankings, patents, and collegiate awards.", link: `https://www.google.com/search?q=${encodeURIComponent(collegeName + " ranking NIRF awards")}` }]
+        });
     }
 });
 

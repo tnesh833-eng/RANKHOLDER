@@ -154,6 +154,7 @@ async function searchCollege() {
         // ── Quick Links ─────────────────────────────────────────
         safeSet('quickLinks', [
             socialLink(d.officialLink,        'fas fa-globe',          'Official Website', 'web'),
+            d.wikiUrl ? socialLink(d.wikiUrl, 'fab fa-wikipedia-w',    'Wikipedia Profile', 'li') : '',
             socialLink(d.location?.mapsLink,  'fas fa-map-marker-alt', 'View on Maps',     'maps'),
         ].filter(Boolean).join('') || '<p class="text-muted text-sm">No links found.</p>');
 
@@ -184,7 +185,7 @@ async function searchCollege() {
                     <div class="overlay"><p>${img.title}</p></div>`;
                 gallery.appendChild(div);
             });
-            if (!d.images?.length) gallery.innerHTML = '<p class="text-muted text-sm">No images available.</p>';
+            if (!d.images?.length) gallery.innerHTML = '<p class="text-muted text-sm" style="padding:10px 0;">No campus photos available.</p>';
         }
 
         // ── Videos ──────────────────────────────────────────────
@@ -196,9 +197,9 @@ async function searchCollege() {
                 a.href = v.link || '#'; a.target = '_blank';
                 a.className = 'video-card';
                 a.innerHTML = `
-                    <div class="video-thumb">
-                        ${v.thumbnail ? `<img src="${v.thumbnail}" alt="${v.title}" loading="lazy">` : ''}
-                        <div class="play-btn"><i class="fas fa-play-circle"></i></div>
+                    <div class="video-thumb" style="background:linear-gradient(135deg, rgba(239,68,68,0.2), rgba(15,23,42,0.9)); min-height:120px; display:flex; align-items:center; justify-content:center;">
+                        ${v.thumbnail ? `<img src="${v.thumbnail}" alt="${v.title}" loading="lazy" onerror="this.style.display='none'">` : ''}
+                        <div class="play-btn" style="position:relative;"><i class="fab fa-youtube" style="font-size:2rem; color:#ef4444;"></i></div>
                         ${v.duration ? `<span class="video-duration">${v.duration}</span>` : ''}
                     </div>
                     <div class="video-info">
