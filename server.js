@@ -174,6 +174,10 @@ if (fs.existsSync(path.join(FRONTEND_DIR, "cerficated.jpg"))) {
 }
 
 // Google Search Console & SEO routes
+app.get("/google:code.html", (req, res) => {
+    res.type("text/html").send(`google-site-verification: google${req.params.code}.html\n`);
+});
+
 app.get("/google30d999d9fef0c8cb.html", (_req, res) => {
     const file = path.join(FRONTEND_DIR, "google30d999d9fef0c8cb.html");
     if (fs.existsSync(file)) return res.sendFile(file);
