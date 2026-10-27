@@ -39,6 +39,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ hashFiles('Dockerfile') != '' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -65,6 +66,7 @@ jobs:
           file: ./Dockerfile
 
   deploy:
+    if: ${{ hashFiles('Dockerfile') != '' }}
     permissions:
       contents: none
     runs-on: ubuntu-latest
